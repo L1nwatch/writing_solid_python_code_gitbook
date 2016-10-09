@@ -433,3 +433,28 @@ Python2.6 之后可以通过 `import unicode_literals` 自动将定义的普通�
 
 简单说包即是目录，但与普通目录不同，它除了包含常规的 Python 文件（也就是模块）以外，还包含一个 `__init__.py` 文件，同时它允许嵌套。
 
+包中的模块可以通过"."访问符进行访问，即"包名.模块名"。有以下几种导入方法：
+
+* 直接导入一个包：`import Package`
+
+* 导入子模块或子包，包嵌套的情况下可以进行嵌套导入，具体如下：
+
+  ```python
+  from Package import Module1
+  import Package.Module1
+  from Package import Subpackage
+  import Package.Subpackage
+  from Package.Subpackage import Module1
+  import Package.Subpackage.Module1
+  ```
+
+`__init__.py` 最明显的作用就是使包和普通目录区分；其次可以在该文件中申明模块级别的 `import` 语句从而使其变成包级别可见。如果 `__init__.py` 文件为空，当意图使用 `from Package import *` 将包 Package 中所有的模块导入当前名字空间时并不能使得导入的模块生效，这是因为不同平台间的文件的命名规则不同，Python 解释器并不能正确判定模块在对应的平台该如何导入，因此它仅仅执行 `__init__.py` 文件，如果要控制模块的导入，则需要对 `__init__.py` 文件做修改。
+
+`__init__.py` 文件还有一个作用就是通过在该文件中定义 `__all__` 变量，控制需要导入的子包或者模块。之后再运行 `from ... import *`，可以看到 `__all__` 变量中定义的模块和包被导入当前名字空间。
+
+包的使用能够带来以下便利：
+
+* 合理组织代码，便于维护和使用
+* 能够有效地避免名称空间冲突
+
+如果模块包含的属性和方法存在同名冲突，使用 `import module` 可以有效地避免名称冲突。在嵌套的包结构中，每一个模块都以其所在的完整路径作为其前缀，因此，即使名称一样，但由于模块所对应的其前缀不同，因此不会产生冲突。
