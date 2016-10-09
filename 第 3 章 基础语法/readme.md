@@ -33,3 +33,325 @@ Python 在初始化运行环境的时候会预先加载一批内建模块到内�
 
 ### 建议 20：优先使用 `absolute import` 来导入模块
 
+解释器默认先从当前目录下搜索对应的模块，当搜到时便停止搜索进行动态加载。
+
+在 Python2.4 以前默认为隐式地 `relative import`，局部范围的模块将覆盖同名的全局范围的模块。如果要使用标准库中同名的模块，需要深入考察 `sys.modules`。Python2.5 中后虽然默认的仍然是 `relative import`，但它为 `absolute import` 提供了一种新的机制，在模块中使用 `from __future__ import absolute_import` 语句进行说明后再进行导入。同时它还通过点号提供了一种显式进行 `relative import` 的方法，"." 表示当前目录， ".." 表示当前目录的上一层目录。
+
+使用显式 `relative import` 之后再运行程序可能遇到这种错误 "ValueError: Attempted relative import in non-package"。这个问题产生的原因在于 `relative import` 使用模块的 `__name__` 属性来决定当前模块在包的顶层位置，而不管模块在文件系统中的实际位置。而在 `relative import` 的情形下，`__name__` 会随着文件加载方式的不同而发生改变。`python -m` 中 `-m` 的作用是使得一个模块像脚本一样运行。而无论以何种方式加载，当在包的内部运行脚本的时候，包相关的结构信息都会丢失，默认当前脚本所在的位置为模块在包中的顶层位置，因此便会抛出异常。
+
+解决办法：
+
+* 在包的顶层目录中加入参数 `-m` 运行该脚本
+* 利用 Python2.6 在模块中引入的 `__package__` 属性，设置 `__package__` 之后，解释器会根据 `__package__` 和 `__name__` 的值来确定包的层次结构。
+
+一个参考示例，以下不会出现在包结构内运行模块对应的脚本时出错的情况：
+
+```python
+if __name__ == "__main__" and __package__ is None:
+    import sys
+    import os.path
+    sys.path[0] = os.path.abspath("./../../")
+    print sys.path[0]
+    import app.sub1
+    __package__ = str("app.sub1")
+    from . import string
+```
+
+ 相比于 `absolute import`，`relative import` 在实际应用中反馈的问题较多，因此推荐优先使用 `absolute import`。`absolute import` 可读性和出现问题后的可跟踪性都更好。当项目的包层次结构较为复杂的时候，显式 `relative import` 也是可以接受的，由于命名冲突的原因以及语义模糊等原因，不推荐使用隐式地 `relative import`，并且它在 Python3 中已经被移除。
+
+### 建议 21：`i += 1` 不等于 `++i`
+
+Python 解释器会将 `++i` 操作解释为 `+(+i)`，其中 `+` 表示正数符号。对于 `--i` 操作也是类似。
+
+因此需要明白 `++i` 在 Python 中语法上是合法的，但并不是我们理解的通常意义上的自增操作。
+
+### 建议 22：使用 with 自动关闭资源
+
+对文件操作完成后应该立即关闭它们，因为打开的文件不仅会占用系统资源，而且可能影响其他程序或者进程的操作，甚至会导致用户期望与实际操作结果不一致。
+
+Python 提供了 `with` 语句，语法为：
+
+```python
+with 表达式 [as 目标]:
+    代码块
+```
+
+`with` 语句支持嵌套，支持多个 `with` 子句，它们两者可以相互转换。`with expr1 as e1, expr2 as e2` 与下面的嵌套形式等价：
+
+```python
+with expr1 as e1:
+    with expr2 as e2:
+```
+
+`with` 语句可以在代码块执行完毕后还原进入该代码块时的现场。包含有 `with` 语句的代码块的执行过程如下：
+
+* 计算表达式的值，返回一个上下文管理器对象
+* 加载上下文管理器对象的 `__exit__()` 方法以备后用
+* 调用上下文管理器对象的 `__enter__()` 方法
+* 如果 `with` 语句中设置了目标对象，则将 `__enter__()` 方法的返回值赋值给目标对象
+* 执行 `with` 中的代码块
+* 如果步骤 5 中代码正常结束，调用上下文管理其对象的 `__exit__()` 方法，其返回值直接忽略
+* 如果步骤 5 中代码执行过程中发生异常，调用上下文管理器对象的 `__exit__()` 方法，并将异常类型、值及 `traceback` 信息作为参数传递给 `__exit__()` 方法。如果 `__exit__()` 返回值为 false，则异常会被重新抛出；如果其返回值为 true，异常被挂起，程序继续执行。
+
+在文件处理时使用 with 的好处在于无论程序以何种方式跳出 with 块，总能保证文件被正确关闭。实际上，它不仅仅针对文件处理，针对其他情景同样可以实现运行时环境的清理与还原，如多线程编程中的锁对象的管理。`with` 得益于一个称为上下文管理器（context manager）的东西，用来创建一个运行时的环境。上下文管理器是这样一个对象：它定义程序运行时需要建立的上下文，处理程序的进入和退出，实现了上下文管理协议，即在对象中定义 `__enter__()` 和 `__exit__()` 方法。其中：
+
+* `__enter__()`：进入运行时的上下文，返回运行时上下文相关的对象，`with` 语句中会将这个返回值绑定到目标对象。
+* `__exit__(exception_type, exception_value, traceback)`：退出运行时的上下文，定义在块执行（或终止）之后上下文管理器应该做什么。它可以处理异常、清理现场或者处理 `with` 块中语句执行完成之后需要处理的动作。
+
+实际上任何实现了上下文协议的对象都可以称为一个上下文管理器，文件也是实现了这个协议的上下文管理器，它们都能够与 `with` 语句兼容。
+
+用户也可以定义自己的上下文管理器来控制程序的运行，只要实现上下文协议便能够和 `with` 语句一起使用：
+
+```python
+class MyContextManager(object):
+    def __enter__(self): # 实现 __enter__ 方法
+        print "entering..."
+    def __exit__(self, exception_type, exception_value, traceback):
+        print "leaving"
+        if exception_type is None:
+            print "no exceptions!"
+            return False
+        elif exception_type is ValueError:
+            print "value error!!!"
+            return True
+        else:
+            print "other error"
+            return True
+        
+with MyContextManager():
+    print "Testing..."
+    raise(ValueError) # 注释这一句会得到不同的效果
+```
+
+因为上下文管理器主要作用于资源共享，因此在实际应用中 `__enter__()` 和 `__exit__()` 方法基本用语资源分配以及释放相关的工作，如打开/关闭文件、异常处理、断开流的连接、锁分配等。为了更好地辅助上下文管理，Python 还提供了 `contextlib` 模块，该模块是通过 `Generator` 实现的，`contextlib` 中的 `contextmanager` 作为装饰器来提供一种针对函数级别的上下文管理机制，可以直接作用于函数/对象而不用去关心 `__enter__()` 和 `__exit__()` 方法的具体实现。
+
+### 建议 23：使用 else 子句简化循环（异常处理）
+
+在循环中，`else` 子句提供了隐含的对循环是否由 break 语句引发循环结束的判断。例子：
+
+```python
+# 以下两段代码等价
+## 我们借助了一个标志量 found 来判断循环结束是不是由 break 语句引起的。
+def print_prime(n):
+    for i in xrange(2, n):
+        found = True
+        for j in xrange(2, i):
+            if i % j == 0:
+                found = False
+                break
+		if found:
+            print("{} is a prime number".format(i))
+             
+def print_prime2(n):
+    for i in xrange(2, n):
+        for j in xrange(2, i):
+            if i % j == 0:
+                break
+        else:
+            print("{} is a prime number".format(i))
+```
+
+当循环“自然”终结（循环条件为假）时 `else` 从句会被执行一次，而当循环是由 `break` 语句中断时，`else` 子句就不被执行。与 `for` 语句相似，`while` 语句中的 `else` 子句的语意是一样的：`else` 块在循环正常结束和循环条件不成立时被执行。
+
+在 Python 的异常处理中，也提供了 `else` 子句语法，`try` 块没有抛出任何异常时，执行 `else` 块。Python 的异常处理中有一种 `try-except-else-finally` 形式。
+
+### 建议 24：遵循异常处理的几点基本原则
+
+异常处理通常需要遵循以下几点基本原则：
+
+* 注意异常的粒度，不推荐在 `try` 中放入过多的代码。在处理异常的时候最好保持异常粒度的一致性和合理性。在 try 中放入过多的代码带来的问题是如果程序中抛出异常，将会较难定位，给 debug 和修复带来不便，因此应尽量只在可能抛出异常的语句块前面放入 try 语句。
+* 谨慎使用单独的 except 语句处理所有异常，最好能定位具体的异常。同样也不推荐使用 `except Exception` 或者 `except StandardError` 来捕获异常。如果必须使用，最好能够使用 raise 语句将异常抛出向上层传递。
+* 注意异常捕获的顺序，在合适的层次处理异常。Python 中内建异常以类的形式出现，Python 2.5 后异常被迁移到新式类上，启用了一个新的所有异常之母的 `BaseException` 类，内建异常有一定的继承结构。
+  * 用户也可以继承自内建异常构建自己的异常类，从而在内建类的继承结构上进一步延伸。在这种情况下捕获异常的顺序显得非常重要。为了更精确地定位错误发生的原因，推荐的方法是将继承结构中子类异常在前面的 except 语句中抛出，而父类异常在后面的 except 语句抛出。这样做的原因是当 try 块中有异常发生的时候，解释器根据 except 声明的顺序进行匹配，在第一个匹配的地方便立即处理该异常。
+  * 异常捕获的顺序非常重要，同时异常应该在适当的位置被处理，一个原则就是如果异常能够在被捕获的位置被处理，那么应该及时处理，不能处理也应该以合适的方式向上层抛出。向上层传递的时候需要警惕异常被丢失的情况，可以使用不带参数的 `raise` 来传递
+* 使用更为友好的异常信息，遵守异常参数的规范。软件最终是位用户服务的，当异常发生的时候，异常信息清晰友好与否直接关系到用户体验。通常来说有两类异常阅读者：使用软件的人和开发软件的人。
+
+### 建议 25：避免 finally 中可能发生的陷阱
+
+无论 `try` 语句中是否有异常抛出，`finally` 语句总会被执行。由于这个特性，`finally` 语句经常被用来做一些清理工作。
+
+但使用 finally 时，也要特别小心一些陷阱。
+
+* 当 `try` 块中发生异常的时候，如果在 `except` 语句中找不到对应的异常处理，异常将会被临时保存起来，当 `finally` 执行完毕的时候，临时保存的异常将会再次被抛出，但如果 `finally` 语句中产生了新的异常或者执行了 `return` 或者 `break` 语句，那么临时保存的异常将会被丢失，从而导致异常屏蔽。
+* 在实际应用程序开发过程中，并不推荐在 `finally` 中使用 `return` 语句进行返回，这种处理方式不仅会带来误解而且可能会引起非常严重的错误。
+
+### 建议 26：深入理解 None，正确判断对象是否为空
+
+Python 中以下数据会当作空来处理：
+
+* 常量 None
+* 常量 False
+* 任何形式的数值类型零，如 0、0L、0.0、0j
+* 空的序列，如 "、()、[]
+* 空的字典，如 {}
+* 当用户定义的类中定义了 `nonzero()` 和 `len()` 方法，并且该方法返回整数 0 或者布尔值 False 的时候。
+
+其中常量 `None` 的特殊性体现在它既不是 `0`、`False`，也不是空字符串，它就是一个空值对象。其数据类型为 `NoneType`，遵循单例模式，是唯一的，因而不能创建 `None` 对象。所有赋值为 `None` 的变量都相等，并且 `None` 与任何其他非 `None` 的对象比较结果都为 `False`。
+
+```python
+if list1 # value is not empty
+	Do something
+else: # value is empty
+    Do some other thing
+```
+
+执行过程中会调用内部方法 `__nonzero__()` 来判断变量 list1 是否为空并返回其结果。`__nonzero__()` 方法：该内部方法用于对自身对象进行空值测试，返回 `0/1` 或 `True/False`。如果一个对象没有定义该方法，Python 将获取 `__len__()` 方法调用的结果来进行判断。`__len__()` 返回值为 0 则表示为空。如果一个类中既没有定义 `__len__()` 方法也没有定义 `__nonzero__()` 方法，该类的实例用 `if` 判断的结果都为 `True`。
+
+### 建议 27：连接字符串应优先使用 join 而不是 +
+
+Python 中的字符串与其他一些程序语言如 C++、Java 有一些不同，它为不可变对象，一旦创建便不能改变，它的这个特性直接影响到 Python 中字符串连接的效率。
+
+* 使用操作符 `+` 连接字符串
+* 使用 `join` 方法连接字符串
+
+一个测试的例子：
+
+```python
+import timeit
+# 生成测试所需要的字符数组
+strlist = ["it is a long value string will not keep in memory" for n in range(100000)]
+def join_test():
+    return "".join(strlist) # 使用 join 方法连接 strlist 中的元素并返回字符串
+def plus_test():
+    result = ""
+    for i, v in enumerate(strlist):
+        return += v
+	return result
+
+if __name__ == "__main__":
+    join_timer = timeit.Timer("join_test()", "from __main__ import join_test")
+    print(join_timer.timeit(number=100))
+    plus_timer = timeit.Timer("plus_test()", "from __main__ import plus_test")
+    print(plus_timer.timeit(number=100))
+```
+
+从分析测试结果图表示，`join()` 方法的效率要高于 `+` 操作符。当用操作符 `+` 连接字符串的时候，由于字符串是不可变对象，其工作原理实际上是这样的：如果要连接如下字符串：`S1+S2+S3+...+SN`，执行一次 `+` 操作便会在内存中申请一块新的内存空间，并将上一次操作的结果和本次操作的右操作数复制到新申请的内存空间，在 `N` 个字符串连接的过程中，会产生 `N-1` 个中间结果，每产生一个中间结果都需要申请和复制一次内存，总共需要申请 `N-1` 次内存，从而严重影响了执行效率，时间复杂度近似为 `O(n^2)`。
+
+而当用 `join()` 方法连接字符串的时候，会首先计算需要申请的总的内存空间，然后一次性申请所需内存并将字符序列中的每一个元素复制到内存中去，所以 `join` 操作的时间复杂度为 `O(n)`。
+
+### 建议 28：格式化字符串时尽量使用 `.format` 方式而不是 `%`
+
+Python 中内置的 `%` 操作符和 `.format` 方式都可用于格式化字符串。
+
+`%` 操作符根据转换说明符所规定的格式返回一串格式化后的字符串，转换说明符的基本形式为：`% [转换标记][宽度[. 精确度]]转换类型`。其中常见的转换标记和转换类型分别如下表所示，如果未指定宽度，则默认输出为字符串本身的宽度。
+
+#### 格式化字符串转换标记
+
+| 转换标记      | 解释                                 |
+| --------- | ---------------------------------- |
+| -         | 表示左对齐                              |
+| +         | 在正数之前加上 +                          |
+| (a space) | 表示正数之前保留空格                         |
+| #         | 在八进制数前面显示零('0')，在十六进制前面显示 0x 或者 0X |
+| 0         | 表示转换值若位数不够用 0 填充而非默认的空格            |
+
+***
+
+#### 格式化字符串转换类型
+
+| 转换类型 | 解释                                      |
+| ---- | --------------------------------------- |
+| c    | 转换为单个字符，对于数字将转换该值所对应的 ASCII 码           |
+| s    | 转换为字符串，对于非字符串对象，将默认调用 `str()` 函数进行转换    |
+| r    | 用 `repr()` 函数进行字符串转换                    |
+| id   | 转换为带符号的十进制数                             |
+| u    | 转换为不带符号的十进制数                            |
+| o    | 转换为不带符号的八进制数                            |
+| x X  | 转换为不带符号的十六进制                            |
+| e E  | 表示为科学计数法表示的浮点数                          |
+| f F  | 转成浮点数（小数部分自然截断）                         |
+| g G  | 如果指数大于 -4 或者小于精度值则和 e/E 相同，其他情况与 f/F 相同 |
+
+`%` 操作符格式化字符串时有如下几种常见用法：
+
+* 直接格式化字符或者数值
+* 以元组的形式格式化
+* 以字典的形式格式化
+
+***
+
+`.format` 方式格式化字符串的基本语法为：`[[ 填充符 ] 对齐方式 ][ 符号 ][#][0][ 宽度 ][,][.精确度 ][ 转换类型 ]`。其中填充符可以是除了 "{" 和 "}" 符号之外的任意符号，对齐方式和符号分别如下表所示，转换类型跟 `%` 操作符的转换类型类似。
+
+#### `.format` 方式格式化字符串的对齐方式
+
+| 对齐方式 | 解释                                     |
+| ---- | -------------------------------------- |
+| <    | 表示左对齐，是大多数对象为默认的对齐方式                   |
+| >    | 表示右对齐，数值默认的对齐方式                        |
+| =    | 仅对数值类型有效，如果有符号的话，在符号后数值前进行填充，如 -000029 |
+| ^    | 居中对齐，用空格进行填充                           |
+
+***
+
+#### `.format` 方式格式化字符串符号列表
+
+| 符号   | 解释                      |
+| ---- | ----------------------- |
+| +    | 正数前加 +，负数前加 -           |
+| -    | 正数前不加符号，负数前加 -，为数值的默认形式 |
+| 空格   | 正数前加空格，负数前加 -           |
+
+***
+
+`.format` 方法几种常见的用法如下：
+
+* 使用位置符号
+
+  * ```python
+    >>> "The number {0:,} in hex is: {0:#x}, the number {1} in oct is {1:#o}".format(4746, 45)
+    'The number 4,746 in hex is: 0x128a, the number 45 in oct is 0o55'
+    ```
+
+* 使用名称
+
+  * ```python
+    >>> "the max number is {max}, the min number is {min}, the average number is {average:0.3f}".format(max=189, min=12.6, average=23.5)
+    'the max number is 189, the min number is 12.6, the average number is 23.500'
+    ```
+
+* 通过属性
+
+  * ```python
+    class Customer(object):
+        def __init__(self, name, gender, phone):
+            self.name = name
+            self.gender = gender
+            self.phone = phone
+            
+    	def __str__(self):
+            return "Customer({self.name}, {self.gender}, {self.phone})".format(self=self)
+        
+    >>> str(Customer("Lisa", "Female", "67889"))
+    "Customer(Lisa, Female, 67889)"
+    ```
+
+* 格式化元组的具体项
+
+  * ```python
+    >>> point = (1, 3)
+    >>> "X:{0[0]};Y:{0[1]}".format(point)
+    "X:1;Y:3"
+    ```
+
+推荐尽量使用 `format` 方式而不是 `%` 操作符来格式化字符串，理由如下：
+
+* `format` 方式在使用上较 `%` 操作符更为灵活。使用 `format` 方式时，参数的顺序与格式化的顺序不必完全相同
+
+* `format` 方式可以方便地作为参数传递
+
+  * ```python
+    weather = [("Monday", "rain"), ("Tuesday", "sunny"), ("Wednesday", "sunny"), ("Thursday", "rain"), ("Friday", "cloudy")]
+    formatter = "Weather of '{0[0]}' is '{0[1]}'".format
+    for item in map(formatter, weather):
+        print(item)
+    ```
+
+* `%` 最终会被 `.format` 方式所代替。根据 Python 的官方文档，之所以仍然保留 `%` 操作符是为了保持向后兼容
+
+* `%` 方法在某些特殊情况下使用时需要特别小心，对于 `%` 直接格式化字符的这种形式，如果字符本身为元组，则需要使用在 `%` 使用 `(itemname,)` 这种形式才能避免错误，注意逗号。
+
+### 建议 29：区别对待可变对象和不可变对象
+
+
+
+
