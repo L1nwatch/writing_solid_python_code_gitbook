@@ -208,3 +208,86 @@ print(conf.get("db2", "conn_str"))
 
 ### 建议 41：使用 `argparse` 处理命令行参数
 
+尽管应用程序通常能够通过配置文件在不修改代码的情况下改变行为，但提供灵活易用的命令行参数仍然非常有意义，比如：减轻用户的学习成本，通常命令行参数的用法只需要在应用程序名后面加 `--help` 参数就能获得，而配置文件的配置方法通常需要通读手册才能掌握。同一个运行环境中有多个配置文件存在，那么需要通过命令行参数指定当前使用哪一个配置文件，如 `pylint` 的 `--rcfile` 参数。
+
+关于命令行处理，标准库中留下的 `getopt`、`optparse`、`argparse` 等库。其中 `getopt` 是类似 UNIX 系统中 `getopt()` 这个 C 函数的实现，可以处理长短配置项和参数。如有命令行参数 `-a -b -cfoo -d bar a1 a2`，在处理之后的结果是两个列表，其中一个是配置项列表：`[('-a', '')、('-b', '')、('-c', 'foo')、('-d', 'bar')]`，每一个元素都由配置项名和其值（默认为空字符串）组成；另一个是参数列表 `['a1', 'a2']`，每一个元素都是一个参数值。
+
+`getopt` 的问题在于两点：一个是长短配置项需要分开处理，二是对非法参数和必填参数的处理需要手动。这种处理非常原始和不便。
+
+`optparse` 比 `getopt` 要更加方便、强劲，与 C 风格的 `getopt` 不同，它采用的是声明式风格，此外，它还能够自动生成应用程序的帮助信息。
+
+```python
+from optparse import OptionParser
+parser = OptionParser()
+parser.add_option("-f", "--file", dest="filename", help="write report to FILE", metavar="FILE")
+parser.add_option("-q", "--quiet", action="store_false", dest="verbose", default=True, help="don't print status messages to stdout")
+(options, args) = parser.parse_args()
+```
+
+可以看到 `add_option()` 方法非常强大，同时支持长短配置项，还有默认值、帮助信息等，简单的几行代码，可以支持非常丰富的命令行接口。
+
+除此之外，虽然没有声明帮助信息，但默认给加上了 `-h` 或 `--help` 支持，通过这两个参数调用应用程序，可以看到自动生成的帮助信息。
+
+不过 `optparse` 虽然很好，但是后来出现的 `argparse` 在继承了它声明式风格的优点之外，又多了更丰富的功能，所以现阶段最好用的参数处理标准库是 `argparse`，使 `optparse` 成为了一个被弃用的库。
+
+与 `optparse` 中的 `add_option()` 类似，`add_argument()` 方法用以增加一个参数声明。与 `add_option()` 相比，它有几个方面的改进，其中之一就是支持类型增多，而且语法更加直观。表现在 `type` 参数不再是一个字符串，而是一个可调用对象，比如在 `add_option()` 调用时是 `type="int"`，而在 `add_argument()` 调用时直接写 `type=int` 就可以了。除了支持常规的 `int/float` 等基本数值类型外，`argparse` 还支持文件类型，只要参数合法，程序就能够使用相应的文件描述符。
+
+```python
+parser = argparse.ArgumentParser()
+parser.add_argument("bar", type=argparse.FileType("w"))
+parser.parse_args(["out.txt"])
+```
+
+另外，扩展类型也变得更加容易，任何可调用对象，比如函数，都可以作为 `type` 的实参。另外 `choices` 参数也支持更多的类型，而不是像 `add_option` 那样只有字符串。比如：`parser.add_argument("door", type=int, choices=range(1, 4))`。
+
+此外，`add_argument()` 提供了对必填参数的支持，只要把 `required` 参数设置为 `True` 传递进去，当缺失这一参数时，`argparse` 就会自动退出程序，并提示用户。
+
+`ArgumentParser` 还支持参数分组。`add_argument_group()` 可以在输出帮助信息时更加清晰，这在用法复杂的 `CLI` 应用程序中非常有帮助：
+
+```python
+parser = argparse.ArgumentParser(prog="PROG", add_help=False)
+group1 = parser.add_argument_group("group1", "group1 description")
+group1.add_argument("foo", help="foo help")
+group2 = parser.add_argument_group("group2", "group2 description")
+group2.add_argument("--bar", help="bar help")
+parser.print_help()
+```
+
+另外还有 `add_mutually_exclusive_group(required=False)` 非常实用：它确保组中的参数至少有一个或者只有一个（`required=True`）。
+
+`argparse` 也支持子命令，比如 `pip` 就有 `install/uninstall/freeze/list/show` 等子命令，这些子命令又接受不同的参数，使用 `ArgumentParser.add_subparsers()` 就可以实现类似的功能。
+
+```python
+import argparse
+parser = argparse.ArgumentParser(prog="PROG")
+subparsers = parser.add_subparsers(help="sub-command help")
+parser_a = subparsers.add_parser("a", help="a help")
+parser_a.add_argument("--bar", type=int, help="bar help")
+parser.parse_args(["a", "--bar", "1"])
+```
+
+除了参数处理之外，当出现非法参数时，用户还需要做一些处理，处理完成后，一般是输出提示信息并退出应用程序。`ArgumentParser` 提供了两个方法函数，分别是 `exit(status=0, message=None)` 和 `error(message)`，可以省了 `import sys` 再调用 `sys.exit()` 的步骤。
+
+> 注意：虽然 argparse 已经非常好用，但又出现了 `docopt`，它是比 argparse 更先进更易用的命令行参数处理器。它甚至不需要编写代码，只要编写类似 argparse 输出的帮助信息即可。这是因为它根据常见的帮助信息定义了一套领域特定语言（DSL），通过这个 DSL Parser 参数生成处理命令行参数的代码，从而实现对命令行参数的解释。`docopt` 现在还不是标准库。
+
+### 建议 42：使用 `pandas` 处理大型 CSV 文件
+
+CSV（Comma Separated Values）作为一种逗号分隔型值的纯文本格式文件，在实际应用中经常用到，如数据库数据的导入导出、数据分析中记录的存储等。很多语言都提供了对 CSV 文件处理的模块，Python 模块 csv 提供了一系列与 CSV 处理相关的 API。
+
+* `reader(csvfile[, dialect="excel"][, fmtparam])`，主要用于 CSV 文件的读取，返回一个 `reader` 对象用于在 CSV 文件内容上进行行迭代。
+
+  参数 `csvfile`，需要是支持迭代（Iterator）的对象，通常对文件（file）对象或者列表（list）对象都是适用的，并且每次调用 `next()` 方法的返回值是字符串（string）；参数 `dialect` 的默认值为 excel，与 excel 兼容；fmtparam 是一系列参数列表，主要用于需要覆盖默认的 `Dialect` 设置的情形。当 `dialect` 设置为 exdel 的时候，默认 `Dialect` 的值如下：
+
+  ```python
+  class excel(Dialect):
+      delimiter = ','	# 单个字符，用于分隔字段
+      quotechar = '"'	# 用于对特殊符号加引号，常见的引号为 ''
+      doublequote = True	# 用于控制 quotechar 符号出现的时候的表现形式
+      skipinitialspace = False	# 设置为 true 的时候 delimiter 后面的空格将会省略
+      lineterminator = '\r\n'	# 行结束符
+      quoting = QUOTE_MINIMAL	# 是否在字段前加引号，QUOTE_MINIMAL 表示仅当一个字段包含引号或者定义符号的时候才加引号
+  ```
+
+  ​
+
+* `csv.write(csvfile, dialect="excel", **fmtparams)`，用于写入 CSV 文件。参数同上。
