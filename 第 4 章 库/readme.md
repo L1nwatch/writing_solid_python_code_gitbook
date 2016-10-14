@@ -408,6 +408,8 @@ Pandas 中处理 CSV 文件的函数主要为 `read_csv()` 和 `to_csv()` 这两
 
 模块 ElementTree 主要存在两种类型 ElementTree 和 Element，它们支持的方法以及对应的使用示例如下所示：
 
+#### ElementTree 主要的方法和使用示例
+
 * `getroot()`：返回 xml 文档的根节点
 
   ```python
@@ -427,4 +429,180 @@ Pandas 中处理 CSV 文件的函数主要为 `read_csv()` 和 `to_csv()` 这两
   >>> print(root.find("systempurpose")
   ```
 
-* `iter(tag=None)`：从
+* `iter(tag=None)`：从 xml 根节点开始，根据传入的元素的 tag 返回所有的元素集合的迭代器
+
+  ```python
+  >>> for i in tree.iter(tag = "command"):
+      print(i.text)
+  ```
+
+* `iterfind(match)`：根据传入的 tag 名称或者 path 以迭代器的形式返回所有的子元素
+
+  ```python
+  >>> for i in tree.iterfind("system/purpose"):
+      print(i.text)
+  ```
+
+
+***
+
+#### Element 主要的方法和使用示例
+
+* `tag`：字符串，用来表示元素所代表的名称
+
+  ```python
+  >>> print(root[1].tag)	# 输出 system
+  ```
+
+* `text`：表示元素所对应的具体值
+
+  ```python
+  >>> print(root[1].text)	# 输出空串
+  ```
+
+* `attrib`：用字典表示的元素的属性
+
+  ```python
+  >>> print(root[1].attrib)	# 输出 {"platform": "aix", "name": "aixtest"}
+  ```
+
+* `get(key, default=None)`：根据元素属性字典的 key 值获取对应的值，如果找不到对应的属性，则返回 default
+
+  ```python
+  >>> print(root[1].attrib.get("platform"))	# 输出 aix
+  ```
+
+* `items()`：将元素属性以（名称，值）的形式返回
+
+  ```python
+  >>> print(root[1].items())	# [("platform", "aix"), ("name", "aixtest")]
+  ```
+
+* `keys()`：返回元素属性的 key 值集合
+
+  ```python
+  >>> print(root[1].keys())	# 输出 ["platform", "name"]
+  ```
+
+* `find(match)`：根据传入的 tag 名称或者 path 返回第一个对应的 element 对象，或者返回 None
+
+* `findall(match)`：根据传入的 tag 名称或者 path 以列表的形式返回所有符合条件的元素
+
+* `findtext(match, default=None)`：根据传入的 tag 名称或者 path 返回第一个对应的 element 对象对应的值，即 text 属性，如果找不到则返回 default 的设置
+
+* `list(elem)`：根据传入的元素的名称返回其所有的子节点
+
+  ```python
+  >>> for i in list(root.findall("system/system_type")):
+      print(i.text)	# 输出 virtual virtual
+  ```
+
+elementree 的 iterparse 工具能够避免将整个 XML 文件加载到内存，从而解决当读入文件过大内存而消耗过多的问题。iterparse 返回一个可以迭代的由元组（时间，元素）组成的流对象，支持两个参数——`source` 和 `events`，其中 `event` 有 4 种选择——`start`、`end`、`startns` 和 `endns`（默认为 end），分别与 SAX 解析的 `startElement`、`endElement`、`startElementNS` 和 `endElementNS` 一一对应。
+
+iterparse 的使用示例：
+
+```python
+>>> count = 0
+>>> for event, elem in ET.iterparse("test.xml"): # 对 iterparse 的返回值进行迭代
+    if event == "end":
+        if elem.tag == "userid":
+            count += 1
+    elem.clear()
+>>> print(count)
+```
+
+### 建议 44：理解模块 pickle 优劣
+
+序列化的场景很常见，如：在磁盘上保存当前程序的状态数据以便重启的时候能够重新加载；多用户或者分布式系统中数据结构的网络传输时，可以将数据序列化后发送给一个可信网络对端，接收者进行反序列化后便可以重新恢复相同的对象；`session` 和 `cache` 的存储等。
+
+序列化，简单地说就是把内存中的数据结构在不丢失其身份和类型信息的情况下转换成对象的文本或二进制表示的过程。对象序列化后的形式经过反序列化过程应该能恢复原有对象。
+
+Python 中有很多支持序列化的模块，如 `pickle`、`json`、`marshal` 和 `shelve` 等。
+
+pickle 估计是最通用的序列化模块了，它还有个 C 语言的实现 cPickle，相比 pickle 来说具有较好的性能，其速度大概是 pickle 的 1000 倍，因此在大多数应用程序中应该优先使用 cPickle（注：cPickle 除了不能被继承之外，它们两者的使用基本上区别不大）。pickle 中最主要的两个函数对为 `dump()` 和 `load()`，分别用来进行对象的序列化和反序列化。
+
+* `pickle.dump(obj, file[, protocol])`：序列化数据到一个文件描述符（一个打开的文件、套接字等）。参数 obj 表示需要序列化的对象，包括布尔、数字、字符串、字节数组、None、列表、元组、字典和集合等基本数据类型，此外 pickle 还能够处理循环，递归引用对象、类、函数以及类的实例等。参数 file 支持 `write()` 方法的文件句柄，可以为真实的文件，也可以是 `StringIO` 对象等。protocol 为序列化使用的协议版本，0 表示 ASCII 协议，所序列化的对象使用可打印的 ASCII 码表示；1 表示老式的二进制协议；2 表示 2.3 版本引入的新二进制协议，比以前的更高效。其中协议 0 和 1 兼容老版本的 Python。protocol 默认值为 0。
+* `load(file)`：表示把文件中的对象恢复为原来的对象，这个过程也被称为反序列化。
+
+```python
+>>> import cPickle as pickle
+>>> my_data = {"name": "Python", "type": "Language", "version": "2.7.5"}
+>>> fp = open("picklefile.dat", "wb")	# 打开要写入的文件
+>>> pickle.dump(my_data, fp)	# 使用 dump 进行序列化
+>>> fp.close()
+>>>
+>>> fp = open("picklefile.dat", "rb")
+>>> out = pickle.load(fp)	# 反序列化
+>>> print(out)
+>>> fp.close()
+```
+
+pickle 之所以能成为通用的序列化模块，与其良好的特性是分不开的，总结为以下几点：
+
+* 接口简单，容易使用。使用 `dump()` 和 `load()` 便可轻易实现序列化和反序列化。
+* pickle 的存储格式具有通用性，能够被不同平台的 Python 解析器共享，比如 Linux 下序列化的格式文件可以在 Windows 平台的 Python 解析器上进行反序列化，兼容性较好。
+* 支持的数据类型广泛。如数字、布尔值、字符串，只包含可序列化对象的元组、字典、列表等，非嵌套的函数、类以及通过类的 `__dict__` 或者 `__getstate__()` 可以返回序列化对象的实例等。
+* pickle 模块是可以扩展的。对于实例对象，pickle 在还原对象的时候一般是不调用 `__init__()` 函数的，如果要调用 `__init__()` 进行初始化，对于古典类可以在类定义中提供 `__getinitargs__()` 函数，并返回一个元组，当进行 unpickle 的时候，Python 就会自动调用 `__init__()`，并把 `__getinitargs__()` 中返回的元组作为参数传递给 `__init__()`，而对于新式类，可以提供 `__getnewargs__()` 来提供对象生成时候的参数，在 unpickle 的时候以 `Class.__new__(Class, *arg)` 的方式创建对象。对于不可序列化的对象，如 sockets、文件句柄、数据库连接等，也可以通过实现 pickle 协议来解决这些巨献，主要是通过特殊方法 `__getstate__()` 和 `__setstate__()` 来返回实例在被 pickle 时的状态。
+
+示例：
+
+```python
+import cPickle as pickle
+class TextReader:
+    def __init__(self, filename):
+        self.filename = filename	# 文件名称
+        self.file = open(filename)	# 打开文件的句柄
+        self.postion = self.file.tell()	# 文件的位置
+        
+	def readline(self):
+        line = self.file.readline()
+        self.postion = self.file.tell()
+        if not line:
+            return None
+        if line.endswith("\n"):
+            line = line[:-1]
+        return "{}: {}".format(self.postion, line)
+    
+    def __getstate__(self):	# 记录文件被 pickle 时候的状态
+        state = self.__dict__.copy()	# 获取被 pickle 时的字典信息
+        del state["file"]
+        return state
+    
+    def __setstate__(self, state):	# 设置反序列化后的状态
+        self.__dict__.update(state)
+        file = open(self.filename)
+        self.file = file
+        
+reader = TextReader("zen.text")
+print(reader.readline())
+print(reader.readline())
+s = pickle.dumps(reader)	# 在 dumps 的时候会默认调用 __getstate__
+new_reader = pickle.loads(s)	# 在 loads 的时候会默认调用 __setstate__
+print(new_reader.readline())
+```
+
+* 能够自动维护对象间的引用，如果一个对象上存在多个引用，pickle 后不会改变对象间的引用，并且能够自动处理循环和递归引用。
+
+  ```python
+  >>> a = ["a", "b"]
+  >>> b = a	# b 引用对象 a
+  >>> b.append("c")
+  >>> p = pickle.dumps((a, b))
+  >>> a1, b1 = pickle.loads(p)
+  >>> a1
+  ["a", "b", "c"]
+  >>> b1
+  ["a", "b", "c"]
+  >>> a1.append("d")	# 反序列化对 a1 对象的修改仍然会影响到 b1
+  >>> b1
+  ["a", "b", "c", "d"]
+  ```
+
+但 pickle 使用也存在以下一些限制：
+
+* pickle 不能保证操作的原子性。pickle 并不是原子操作，也就是说在一个 pickle 调用中如果发生异常，可能部分数据已经被保存，另外如果对象处于深递归状态，那么可能超出 Python 的最大递归深度。递归深度可以通过 `sys.setrecursionlimit()` 进行扩展。
+* pickle 存在安全性问题。Python 的文档清晰地表明它不提供安全性保证，因此对于一个从不可信的数据源接收到的数据不要轻易进行反序列化。由于 `loads()` 可以接收字符串作为参数，精心设计的字符串给入侵提供了一种可能。在 Python 解释器中输入代码 `pickle.loads("cos\nsystem\n(S'dir\ntR.")`便可以查看当前目录下所有文件。可以将 `dir` 替换为其他更具破坏性的命令。如果要进一步提高安全性，用户可以通过继承类 `pickle.Unpickler` 并重写 `find_class()` 方法来实现。
+* pickle 协议是 Python 特定的，不同语言之间的兼容性难以保障。用 Python 创建的 pickle 文件可能其他语言不能使用。
+
+### 建议 45：序列化的另一个不错的选择——JSON
+
