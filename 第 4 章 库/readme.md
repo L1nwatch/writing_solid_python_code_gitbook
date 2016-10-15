@@ -816,3 +816,121 @@ datefmt=%a, %d %b %Y %H:%M:%S
 
 ### 建议 48：使用 threading 模块编写多线程程序
 
+GIL 的存在使得 Python 多线程编程暂时无法充分利用多处理器的优势，这种限制并不意味着我们需要放弃多线程。的确，对于只含纯 Python 的代码也许使用多线程并不能提高运行速率，但在以下几种情况，如等待外部资源返回，或者为了提高用户体验而建立反应灵活的用户界面，或者多用户应用程序中，多线程仍然是一个比较好的解决方案。Python 为多线程编程提供了两个非常简单明了的模块：thread 和 threading。
+
+thread 模块提供了多线程底层支持模块，以低级原始的方式来处理和控制线程，使用起来较为复杂；而 threading 模块基于 thread 进行包装，将线程的操作对象化，在语言层面提供了丰富的特性。Python 多线程支持用两种方式来创建线程：一种通过继承 Thread 类，重写它的 run() 方法（注意不是 start() 方法）；另一种是创建一个 thread.Thread 对象，在它的初始化函数（`__init__()`）中将可调用对象作为参数传入。实际应用中，推荐优先使用 threading 模块而不是 thread 模块。
+
+* threading 模块对同步原语的支持更为完善和丰富。就线程的同步和互斥来说，thread 模块只提供了一种锁类型 `thread.LockType`，而 threading 模块中不仅有 Lock 指令锁，RLock 可重入指令锁，还支持条件变量 Condition、信号量 Semaphore、BoundedSemaphore 以及 Event 事件等
+
+* threading 模块在主线程和子线程交互上更为友好，threading 中的 join() 方法能够阻塞当前上下文环境的线程，直到调用此方法的线程终止或到达指定的 timeout（可选参数）。利用该方法可以方便地控制主线程和子线程以及子线程之间的执行。
+
+* thread 模块不支持守护线程。thread 模块中主线程退出的时候，所有的子线程不论是否还在工作，都会被强制结束，并且没有任何警告，也没有任何退出前的清理工作。
+  测试代码：
+
+  ```python
+  from thread import start_new_thread
+  import time
+  def myfunc(a, delay):
+      print("I wll calculate square of {} after delay for {}".format(a, delay))
+      time.sleep(delay)
+      print("calculate begins...")
+      result = a * a
+      print(result)
+      return result
+  start_new_thread(myfunc, (2, 5))	# 同时启动两个线程
+  start_new_thread(myfunc, (6, 8))
+  time.sleep(1)
+  ```
+
+  实际上很多情况下我们可能希望主线程能够等待所有子线程都完成时才退出，这时应该使用 threading 模块，它支持守护线程，可以通过 `setDaemon()` 函数来设定线程的 daemon 属性。当 daemon 属性设置为 True 的时候表明主线程的退出可以不用等待子线程完成。默认情况下，daemon 标志为 False，所有的非守护线程结束后主线程才会结束。
+
+  ```python
+  import threading
+  import time
+  def myfunc(a, delay):
+      print("I will calculate square of {} after delay for {}".format(a, delay))
+      time.sleep(delay)
+      print("calculate begins...")
+      result = a * a
+      print(result)
+      return result
+
+  t1 = threading.Thread(target=myfunc, args=(2, 5))
+  t2 = threading.Thread(target=myfunc, args=(6, 8))
+  print(t1.isDaemon())
+  print(t2.isDaemon())
+  t2.setDaemon(True)
+  t1.start()
+  t2.start()
+  ```
+
+* Python3 中已经不存在 thread 模块。thread 模块在 Python3 中被命名为 _thread，这种更改主要是为了进一步明确表示与 thread 模块相关的更多的是具体的实现细节，它更多展示的是操作系统层面的原始操作和处理。
+
+### 建议 49：使用 Queue 使多线程编程更安全
+
+多线程编程不是件容易的事情。线程间的同步和互斥，线程间数据的共享等这些都是涉及线程安全要考虑的问题。纵然 Python 中提供了众多的同步和互斥机制，如 mutex、condition、event 等，但同步和互斥本身就不是一个容易的话题，稍有不慎就会陷入死锁状态或者威胁线程安全。
+
+Python 中的 Queue 模块提供了 3 种队列：
+
+* `Queue.Queue(maxsize)`：先进先出，maxsize 为队列大小，其值为非正数的时候为无限循环队列
+* `Queue.LifoQueue(maxsize)`：后进先出，相当于栈
+* `Queue.PriorityQueue(maxsize)`：优先级队列
+
+这 3 种队列支持以下方法：
+
+* `Queue.qsize()`：返回近似的队列大小。之所以说是近似，当该值 > 0 的时候并不保证并发执行的时候 get() 方法不被阻塞，同样，对于 put() 方法有效。
+* `Queue.empty()`：队列为空的时候返回 True，否则返回 False
+* `Queue.full()`：当设定了队列大小的情况下，如果队列满则返回 True，否则返回 False。
+* `Queue.put(item[, block[, timeout]])`：往队列中添加元素 item，block 设置为 False 的时候，如果队列满则抛出 Full 异常。如果 block 设置为 True，timeout 为 None 的时候则会一直等待直到有空位置，否则会根据 timeout 的设定超时后抛出 Full 异常。
+* `Queue.put_nowait(item)`：等于 `put(item, False).block` 设置为 False 的时候，如果队列空则抛出 Empty 异常。如果 block 设置为 True、timeout 为 None 的时候则会一直等到有元素可用，否则会根据 timeout 的设定超时后抛出 Empty 异常。【个人：这里是不是说反了？】
+* `Queue.get([block[, timeout]])`：从队列中删除元素并返回该元素的值
+* `Queue.get_nowait()`：等价于 `get(False)`
+* `Queue.task_done()`：发送信号表明入列任务已经完成，经常在消费者线程中用到
+* `Queue.join()`：阻塞直至队列中所有的元素处理完毕
+
+Queue 模块实现了多个生产者多个消费者的队列，当多线程之间需要信息安全的交换的时候特别有用，因此这个模块实现了所需要的锁原语，为 Python 多线程编程提供了有力的支持，它是线程安全的。需要注意的是 Queue 模块中的队列和 `collections.deque` 所表示的队列并不一样，前者主要用于不同线程之间的通信，它内部实现了线程的锁机制；而后者主要是数据结构上的概念，因此支持 in 方法。
+
+因为 queue 本身能够保证线程安全，因此不需要额外的同步机制。下面有个多线程下载的例子：
+
+```python
+import os
+import Queue
+import threading
+import urllib2
+class DownloadThread(threading.Thread):
+    def __init__(self, queue):
+        threading.Thread.__init__(self)
+        self.queue = queue
+    def run(self):
+        while True:
+            url = self.queue.get()	# 从队列中取出一个 url 元素
+            print(self.name + "begin download" + url + "...")
+            self.download_file(url)	# 进行文件下载
+            self.queue.task_done()	# 下载完毕发送信号
+            print(self.name + " download completed!!!")
+	def download_file(self, url):	# 下载文件
+        urlhandler = urllib2.urlopen(url)
+        fname = os.path.basename(url) + ".html"	# 文件名称
+        with open(fname, "wb") as f:	# 打开文件
+            while True:
+                chunk = urlhandler.read(1024)
+                if not chunk:
+                    break
+                f.write(chunk)
+if __name__ == "__main__":
+    urls = ["https://www.createspace.com/3611970","http://wiki.python.org/moni.WebProgramming"]
+    queue = Queue.Queue()
+    # create a thread pool and give them a queue
+    for i in range(5):
+        t = DownloadThread(queue)	# 启动 5 个线程同时进行下载
+        t.setDaemon(True)
+        t.start()
+        
+    # give the queue some data
+    for url in urls:
+        queue.put(url)
+        
+	# wait for the queue to finish
+    queue.join()
+```
+
