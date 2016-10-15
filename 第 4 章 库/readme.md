@@ -685,3 +685,134 @@ for filename, linenum, funcname, source in traceback.extract_tb(exc_tb):
 实际上除了 traceback 模块本身，inspect 模块也提供了获取 traceback 对象的接口，`inspect.trace([context])` 可以返回当前帧对象以及异常发生时进行捕获的帧对象之间的所有栈帧记录，因此第一个记录代表当前调用对象，最后一个代表异常发生时候的对象。其中每一个列表元素都是一个由 6 个元素组成的元组：（frame 对象，文件名，当前行号，函数名，源代码列表，当前行在源代码列表中的位置）。
 
 此外如果想进一步追踪函数调用的情况，还可以通过 inspect 模块的 `inspect.stack()` 函数查看函数层级调用的栈相关信息。因此，当异常发生的时候，合理使用上述模块中的方法可以快速地定位程序中的问题所在。
+
+### 建议 47：使用 logging 记录日志信息
+
+仅仅将信息输出到控制台是远远不够的，更为常见的是使用日志保存程序运行过程中的相关信息，如运行时间、描述信息以及错误或者异常发生时候的特定上下文信息。Python 中自带的 logging 模块提供了日志功能，它将 logger 的 level 分为 5 个级别，可以通过 `Logger.setLevel(lvl)` 来设置，其中 DEBUG 为最低级别，CRITICAL 为最高级别，默认的级别为 WARNING。
+
+| Level    | 使用情形                                 |
+| -------- | ------------------------------------ |
+| DEBUG    | 详细的信息，在追踪问题的时候使用                     |
+| INFO     | 正常的信息                                |
+| WARNING  | 一些不可预见的问题发生，或者将要发生，如磁盘空间低等，但不影响程序的运行 |
+| ERROR    | 由于某些严重的问题，程序中的一些功能受到影响               |
+| CRITICAL | 严重的错误，或者程序本身不能够继续运行                  |
+
+logging lib 包含以下 4 个主要对象：
+
+* logger：logger 是程序信息输出的接口，它分散在不同的代码中，使得程序可以在运行的时候记录相应的信息，并根据设置的日志级别或 filter 来决定哪些信息需要输出，并将这些信息分发到其关联的 handler。常用的方法有 `Logger.setLevel()`、`Logger.addHandler()`、`Logger.removeHandler()`、`Logger.addFilter()`、`Logger.debug()`、`Logger.info()`、`Logger.warning()`、`Logger.error()`、`etLogger()` 等。
+* Handler：Handler 用来处理信息的输出，可以将信息输出到控制台、文件或者网络。可以通过 `Logger.addHandler()` 来给 logger 对象添加 handler，常用的 handler 有 StreamHandler 和 FileHandler 类。StreamHandler 发送错误信息到流，而 FileHandler 类用于向文件输出日志信息，这两个 handler 定义在 logging 的核心模块中。其他的 handler 定义在 `logging.handles` 模块中，如 `HTTPHhandler`、`SocketHandler`。
+* Formatter：决定 log 信息的格式，格式使用类似于 `%(< dictionary key >)s` 的形式来定义，如 `'%(asctime)s - %(levelname)s - %(message)s'`，支持的 key 可以在 Python 自带的文档 LogRecord attributes 中查看
+* Filter：用来决定哪些信息需要输出。可以被 handler 和 logger 使用，支持层次关系，比如，如果设置了 filter 名称为 A.B 的 logger，则该 logger 和其子 logger 的信息会被输出，如 A.B、A.B.C
+
+`logging.basicConfig([**kwargs])` 提供对日志系统的基本配置，默认使用 StreamHandler 和 Formatter 并添加到 root logger，该方法自 Python2.4 开始可以接受字典参数，支持的字典参数：
+
+| 格式       | 描述                                       |
+| -------- | ---------------------------------------- |
+| filename | 指定 FileHandler 的文件名，而不是默认的 StreamHandler |
+| filemode | 打开文件的模式，同 open 函数中的同名参数，默认为 'a'          |
+| format   | 输出格式字符串                                  |
+| datefmt  | 日期格式                                     |
+| level    | 设置根 logger 的日志级别                         |
+| stream   | 指定 StreamHandler。这个参数若与 filename 冲突，忽略 stream |
+
+结合 traceback 和 logging，记录程序运行过程中的异常：
+
+```python
+import traceback
+import sys
+import logging
+gList = ["a", "b", "c", "d", "e", "f", "g"]
+logging.basicConfig( # 配置日志的输出方式及格式
+	level = logging.DEBUG,
+    filename = "log.txt",
+    filemode = "w",
+    format = "%(asctime)s %(filename)s[line:%(lineno)d] %(levelname)s % (message)s",
+)
+
+def f():
+    gList[5]
+    logging.info("[INFO]:calling method g() in f()")	# 记录正常的信息
+    return g()
+
+def g():
+    logging.info("[INFO]:calling method h() in g()")
+    return h()
+
+def h():
+    logging.info("[INFO]:Delete element in gList in h()")
+    del gList[2]
+    logging.info("[INFO]:calling method i() in h()")
+    return i()
+
+def i():
+    logging.info("[INFO]:Append element i to gList in i()")
+    gList.append("i")
+    print(gList[7])
+    
+if __name__ == "__main__":
+    logging.debug("Information during calling f():")
+    try:
+        f()
+    except IndexError as ex:
+        print("Sorry, Exception occured, you accessed an element out of range")
+        # traceback.print_exc()
+        ty, tv, tb = sys.exc_info()
+        logging.error("[ERROR]: Sorry, Exception occured, you accessed an element out of range")	# 记录异常错误消息
+        logging.critical("object info:%s" % ex)
+        logging.critical("Error Type:{0}, Error Information:{1}".format(ty, tv))	# 记录异常的类型和对应的值
+        logging.critical("".join(traceback.format_tb(tb)))	# 记录具体的 trace 信息
+        sys.exit(1)
+```
+
+修改程序后在控制台上对用户仅显示错误提示信息，而开发人员如果需要 debug 可以在日志文件中找到具体运行过程中的信息。
+
+上面的代码中控制运行输出到 console 上用的是 `print()`，但这种方法比较原始，logging 模块提供了能够同时控制输出到 console 和文件的方法：
+
+```python
+console = logging.StreamHandler()
+console.setLevel(logging.ERROR)
+formatter = logging.Formatter("%(name)-12s: %(levelname)-8s %(message)s")
+console.setFormatter(formatter)
+logging.getLogger('').addHandler(console)
+```
+
+为了使 Logging 使用更为简单可控，logging 支持 logging.config 进行配置，支持 dictConfig 和 fileConfig 两种形式，其中 fileConfig 是基于 `configparser()` 函数进行解析，必须包含的内容为 `[loggers]`、`[handlers] ` 和 `[formatters]`。
+
+```ini
+[loggers]
+keys=root
+[logger_root]
+level=DEBUG
+handlers=hand01
+[handlers]
+keys=hand01
+
+[handler_hand01]
+class=StreamHandler
+level=INFO
+formatter=form01
+args=(sys.stderr,)
+[formatters]
+keys=form01
+[formatter_form01]
+format=%(asctime)s %(filename)s[line:%(lineno)d] %(levelname)s %(message)s
+datefmt=%a, %d %b %Y %H:%M:%S
+```
+
+关于 logging 的使用，还有几点建议：
+
+* 尽量为 logging 取一个名字而不是采用默认，这样当在不同的模块中使用的时候，其他模块只需要使用以下代码就可以方便地使用同一个 logger，因为它本质上符合单例模式：
+
+  ```python
+  import logging
+  logging.basicConfig(level=logging.DEBUG)
+  logger = logging.getLogger(__name__)
+  ```
+
+* 为了方便地找出问题所在，logging 的名字建议以模块或者 class 来命名。Logging 名称遵循按 "." 划分的继承规则，根是 root logger，logger a.b 的父 logger 对象为 a。
+
+* Logging 只是线程安全的，不支持多进程写入同一个日志文件，因此对于多个进程，需要配置不同的日志文件。
+
+### 建议 48：使用 threading 模块编写多线程程序
+
