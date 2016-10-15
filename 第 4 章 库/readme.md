@@ -606,3 +606,82 @@ print(new_reader.readline())
 
 ### 建议 45：序列化的另一个不错的选择——JSON
 
+JSON（JavaScript Object Notation）是一种轻量级数据交换格式，它基于 JavaScript 编程语言的一个子集，于 1999 年 12 月成为一个完全独立于语言的文本格式。其格式使用了许多其他流行编程的约定，简单灵活，可读性和互操作性较强、易于解析和使用。
+
+Python 中有一系列的模块提供对 JSON 格式的支持，如 `simplejson`、`cjson`、`yajl`、`ujson`，自 Python2.6 后又引入了标准库 JSON。简单来说 `cjson` 和 `ujson` 是用 C 来实现的，速度较快。据 `cjson` 的文档表述：其速率比纯 Python 实现的 json 模块大概要快 250 倍。`yajl` 是 Cpython 版本的 JSON 实现，而 `simplejson` 和标准库 JSON 本质来说无多大区别，实际上 Python2.6 中的 json 模块就是 `simplejson` 减去对 Python2.4、Python2.5 的支持以充分利用最新的兼容未来的功能。不过相对于 `simplejson`，标准库更新相对较慢。在实际应用过程中将这两者结合较好的做法是采用如下 import 方法：
+
+```python
+try:
+    import simplejson as json
+except ImportError:
+    import json
+```
+
+Python 的标准库 JSON 提供的最常用的方法与 pickle 类似，`dump/dumps` 用来序列化，`load/loads` 用来反序列化。需要注意 json 默认不支持非 ASCII-based 的编码，如 load 方法可能在处理中文字符时不能正常显示，则需要通过 encoding 参数指定对应的字符编码。在序列化方面，相比 pickle，JSON 具有以下优势：
+
+* 使用简单，支持多种数据类型。JSON 文档的构成非常简单，仅存在以下两大数据结构：
+
+  * 名称/值对的集合。在各种语言中，它被实现为一个对象、记录、结构、字典、散列表、键列表或关联数组。
+  * 值的有序列表。在大多数语言中，它被实现为数组、向量、列表或序列。在 Python 中对应支持的数据类型包括字典、列表、字符串、整数、浮点数、True、False、None 等。JSON 中数据结构和 Python 中的转换并不是完全一一对应，存在一定的差异。
+
+* 存储格式可读性更为友好，容易修改。相比于 pickle 来说，json 格式更加接近程序员的思维，阅读和修改上要容易得多。`dumps()` 函数提供了一个参数 indent 使生成的 json 文件可读性更好，0 意味着“每个值单独一行”；大于 0 的数字意味着“每个值单独一行并且使用这个数字的空格来缩进嵌套的数据结构”。但需要注意的是，这个参数是以文件大小变大为代价的。
+
+* json 支持跨平台跨语言操作，能够轻易被其他语言解析，如 Python 中生成的 json 文件可以轻易使用 JavaScript 解析，互操作性更强，而 pickle 格式的文件只能在 Python 语言中支持。此外 json 原生的 JavaScript 支持，客户端浏览器不需要为此使用额外的解释器，特别适用于 Web 应用提供快速、紧凑、方便地序列化操作。此外，相比于 pickle，json 的存储格式更为紧凑，所占空间更小。
+
+* 具有较强的扩展性。json 模块还提供了编码（JSONEncoder）和解码类（JSONDecoder）以便用户对其默认不支持的序列化类型进行扩展。
+
+* json 在序列化 datetime 的时候会抛出 TypeError 异常，这是因为 json 模块本身不支持 datetime 的序列化，因此需要对 json 本身的 JSONEncoder 进行扩展。有多种方法可以实现：
+
+  ```python
+  import datetime
+  from time import mktime
+  try:
+      import simplejson as json
+  except ImportError:
+      import json
+      
+  class DateTimeEncoder(json.JSONEncoder):	# 为 JSONEncoder 进行扩展
+      def default(self, obj):
+          if isinstance(obj, datetime.datetime):
+              return obj.strftime("%Y-%m-%d %H:%M:%S")
+          elif isinstance(obj, date):
+              return obj.strftime("%Y-%m-%d")
+          return json.JSONEncoder.default(self, obj)
+      
+  d = datetime.datetime.now()
+  print(json.dumps(d, cls=DateTimeEncoder))	# 使用 cls 指定编码器的名称
+  ```
+
+Python 中标准模块 json 的性能比 pickle 与 cPickle 稍逊。如果对序列化性能要求非常高的场景，可以使用 cPickle 模块。
+
+### 建议 46：使用 traceback 获取栈信息
+
+面对异常开发人员最希望看到的往往是异常发生时候的现场信息，`traceback` 模块可以满足这个需求，它会输出完整的栈信息。
+
+```python
+except IndexError as ex:
+    print("Sorry, Exception occured, you accessed an element out of range")
+    print(ex)
+    traceback.print_exc()
+```
+
+程序会输出异常发生时候完整的栈信息，包括调用顺序、异常发生的语句、错误类型等。
+
+`traceback.print_exc()` 方法打印出的信息包括 3 部分：错误类型（IndexError）、错误对应的值（list index out of range）以及具体的 trace 信息，包括文件名、具体的行号、函数名以及对应的源代码。`Traceback` 模块提供了一系列方法来获取和显示异常发生时候的 trace 相关信息：
+
+* `traceback.print_exception(type, value, traceback[, limit[, file]])`，根据 limit 的设置打印栈信息，file 为 None 的情况下定位到 `sys.stderr`，否则则写入文件；其中 type、value、traceback 这 3 个参数对应的值可以从 `sys.exc_info()` 中获取。
+* `traceback.print_exc([limit[, file]])`，为 `print_exception()` 函数的缩写，不需要传入 type、value、traceback 这 3 个参数。
+* `traceback.format_exc([limit])`，与 `print_exec()` 类似，区别在于返回形式为字符串。
+* `traceback.extract_stack([file, [limit]])`，从当前栈帧中提取 trace 信息。
+
+可以参看 Python 文档获取更多关于 traceback 所提供的抽取、格式化或者打印程序运行时候的栈跟踪信息的方法。本质上模块 traceback 获取异常相关的数据都是通过 `sys.exc_info()` 函数得到的。当有异常发生的时候，该函数以元组的形式返回 `(type, value, traceback)`，其中 type 为异常的类型，value 为异常本身，traceback 为异常发生时候的调用和堆栈信息，它是一个 traceback 对象，对象中包含出错的行数、位置等数据。
+
+```python
+tb_type, tb_val, exc_tb = sys.exc_info()
+for filename, linenum, funcname, source in traceback.extract_tb(exc_tb):
+    print("%-23s:%s '%s' in %s()" % (filename, linenum, source, funcname))
+```
+
+实际上除了 traceback 模块本身，inspect 模块也提供了获取 traceback 对象的接口，`inspect.trace([context])` 可以返回当前帧对象以及异常发生时进行捕获的帧对象之间的所有栈帧记录，因此第一个记录代表当前调用对象，最后一个代表异常发生时候的对象。其中每一个列表元素都是一个由 6 个元素组成的元组：（frame 对象，文件名，当前行号，函数名，源代码列表，当前行在源代码列表中的位置）。
+
+此外如果想进一步追踪函数调用的情况，还可以通过 inspect 模块的 `inspect.stack()` 函数查看函数层级调用的栈相关信息。因此，当异常发生的时候，合理使用上述模块中的方法可以快速地定位程序中的问题所在。
