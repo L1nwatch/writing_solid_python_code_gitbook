@@ -220,3 +220,86 @@ Python 也支持多继承，语法：
 
 `class DerivedClassName(Base1, Base2, Base3)`
 
+古典类和新式类之间所采用的 MRO（Method Resolution Order，方法解析顺序）实现方式存在差异。
+
+在古典类中，MRO 搜索采用简单的自左向右的深度优先方法，即按照多继承申明的顺序形成继承树结构，自顶向下采用深度优先的搜索顺序，当找到所需要的属性或者方法的时候就停止搜索。
+
+而新式类采用的而是 C3 MRO 搜索方法，该算法描述如下：
+
+> 假定，C1C2...CN 表示类 C1 到 CN 的序列，其中序列头部元素（head）=C1，序列尾部（tail）定义 = C2...CN；
+>
+> C 继承的基类自左向右分别表示为 B1，B2...BN
+>
+> L[C] 表示 C 的线性继承关系，其中 L[object] = object。
+>
+> 算法具体过程如下：
+>
+> L[C(B1...BN)] = C + merge(L[B1] ... L[BN], B1 ... BN)
+>
+> 其中 merge 方法的计算规则如下：在 L[B1]...L[BN]，B1...BN 中，取 L[B1] 的 head，如果该元素不在 L[B2]...L[BN]，B1...BN 的尾部序列中，则添加该元素到 C 的线性继承序列中，同时将该元素从所有列表中删除（该头元素也叫 good head），否则取 L[B2] 的 head。继续相同的判断，直到整个列表为空或者没有办法找到任何符合要求的头元素（此时，将引发一个异常）。
+
+关于 MRO 的搜索顺序也可以在新式类中通过查看 `__mro__` 属性得到证实。
+
+实际上 MRO 虽然叫方法解析顺序，但它不仅是针对方法搜索，对于类中的数据属性也适用。
+
+菱形继承是我们在多继承设计的时候需要尽量避免的一个问题。
+
+### 建议 59：理解描述符机制
+
+除了在不同的局部变量、全局变量中查找名字，还有一个相似的场景，那就是查找对象的属性。在 Python 中，一切皆是对象，所以类也是对象，类的实例也是对象。
+
+每一个类都有一个 `__dict__` 属性，其中包含的是它的所有属性，又称为类属性。
+
+除了与类相关的类属性之外，每一个实例也有相应的属性表（`__dict__`），称为实例属性。当我们通过实例访问一个属性时，它首先会尝试在实例属性中查找，如果找不到，则会到类属性中查找。
+
+实例可以访问类属性，但与读操作有所不同，如果通过实例增加一个属性，只能改变此实例的属性，对类属性而言，并没有变化。
+
+能不能给类增加一个属性？答案是，能，也不能。说能是因为每一个 class 也是一个对象，动态地增减对象的属性与方法正是 Python 这种动态语言的特性，自然是支持的。
+
+说不能，是因为在 Python 中，内置类型和用户定义的类型是有分别的，内置类型并不能够随意地为它增加属性或方法。
+
+当我们通过 "." 操作符访问一个属性时，如果访问的实例属性，与直接通过 `__dict__` 属性获取相应的元素是一样的；而如果访问的是类属性，则并不相同；"." 操作符封装了对两种不同属性进行查找的细节。
+
+访问类属性时，通过 `__dict__` 访问和使用 "." 操作符访问是一样的，但如果是方法，却又不是如此了。
+
+当通过 "." 操作符访问时，Python 的名字查找并不是先在实例属性中查找，然后再在类属性中查找那么简单，实际上，根据通过实例访问属性和根据类访问属性的不同，有以下两种情况：
+
+* 一种是通过实例访问，比如代码 `obj.x`，如果 x 是一个描述符，那么 `__getattribute__()` 会返回 `type(obj).__dict__['x'].__get__(obj, type(obj))` 结果，即：`type(obj)` 获取 obj 的类型；`type(obj).__dict__['x']` 返回的是一个描述符，这里有一个试探和判断的过程；最后调用这个描述符的 `__get__()` 方法。
+* 另一个是通过类访问的情况，比如代码 `cls.x`，则会被 `__getattribute__()` 转换为 `cls.__dict__['x'].__get__(None, cls)`。
+
+描述符协议是一个 Duck Typing 的协议，而每一个函数都有 `__get__` 方法，也就是说其他每一个函数都是描述符。
+
+描述符机制有什么作用？其实它的作用编写一般程序的话还真用不上，但对于编写程序库的读者来说就有用了，比如已绑定方法和未绑定方法。
+
+由于对描述符的 `__get__()` 的调用参数不同，当以 `obj.x` 的形式访问时，调用参数是 `__get__(obj, type(obj))`；而以 `cls.x` 的形式访问时，调用参数是 `__get__(None, type(obj))`，这可以通过未绑定方法的 `im_self` 属性为 None 得到印证。
+
+除此之外，所有对属性、方法进行修饰的方案往往都用到了描述符，比如 `classmethod`、`staticmethod` 和 `property` 等。以下是 property 的参考实现：
+
+```python
+class Property(object):
+    "Emulate PyProperty_Type() in Objects/descrobject.c"
+    def __init__(self, fget=None, fset=None, fdel=None, doc=None):
+        self.fget = fget
+        self.fset = fset
+        self.fdel = fdel
+        self.__doc__ = doc
+	def __get__(self, obj, objtype=None):
+        if obj is None:
+            return self
+        if self.fget is None:
+            raise AttributeError, "unreadable attribute"
+        return self.fget(obj)
+	def __set__(self, obj, value):
+        if self.fset is None:
+            raise AttributeError, "can't set attribute"
+        self.fset(obj, value)
+	def __delete__(self, obj):
+        if self.fdel is None:
+            raise AttributeError, "can't delete attribute"
+        self.fdel(obj)
+```
+
+### 建议 60：区别 `__getattr__()` 和 `__getattribute__()` 方法
+
+
+
