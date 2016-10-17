@@ -301,5 +301,106 @@ class Property(object):
 
 ### 建议 60：区别 `__getattr__()` 和 `__getattribute__()` 方法
 
+`__getattr__()` 和 `__getattribute__()` 都可以用作实例属性的获取和拦截（仅对实例属性（instance varibale）有效，非类属性），`__getattr__()` 适用于未定义的属性，即该属性在实例中以及对应的类的基类以及祖先类中都不存在，而 `__getattribute__()` 对于所有属性的访问都会调用该方法。
 
+需要注意的是 `__getattribute__()` 仅用于新式类。
+
+当访问一个不存在的实例属性的饿时候就会抛出 `AttributeError` 异常。这个异常时由内部方法 `__getattribute__(self, name)` 抛出的，因为 `__getattribute__()` 会被无条件调用，也就是说只要涉及实例属性的访问就会调用该方法，它要么返回实际的值，要么抛出异常。Python 的[文档](http://docs.python.org/2/reference/datamodel.html#object.getattribute)中也提到了这一点。
+
+实际上 `__getattr__()` 方法仅如下情况才被调用：属性不在实例的 `__dict__` 中；属性不在其基类以及祖先类的 `__dict__` 中；触发 `AttributeError` 异常时（注意，不仅仅是 `__getattribute__()` 方法的 `AttributeError` 异常，property 中定义的 `get()` 方法抛出异常的时候也会调用该方法）。
+
+当这两个方法同时被定义的时候，要么在 `__getattribute__()` 中显式调用，要么触发 `AttributeError` 异常，否则 `__getattr__()` 永远不会被调用。`__getattribute__()` 及 `__getattr__()` 方法都是 Object 类中定义的默认方法，当用户需要覆盖这些方法时有以下几点注意事项：
+
+* 避免无穷递归。比如覆盖 `__getattribute__()` 时使用了 `self.__dict__[attr]`，正确的做法是使用 `super(obj, self).__getattribute__(attr)` 或者 `object.__getattribute(self, attr)`。无穷递归是覆盖 `__getattr__()` 和 `__getattribute__()` 方法的时候需要特别小心
+* 访问未定义的属性。如果在 `__getattr__()` 方法中不抛出 `AttributeError` 异常或者显式返回一个值，则会返回 None，此时可能会影响到程序的实际运行预期。
+
+另外关于 `__getattr__()` 和 `__getattribute__()` 有以下两点提醒：
+
+* 覆盖了 `__getattribute__()` 方法之后，任何属性的访问都会调用用户定义的 `__getattribute__()` 方法，性能上会有所损耗，比使用默认的方法要慢。
+* 覆盖的 `__getattr__()` 方法如果能够动态处理事先未定义的属性，可以更好地实现数据隐藏。因为 `dir()` 通常只显示正常的属性和方法，因此不会将该属性列为可用属性。
+* property 也能控制属性的访问，如果一个类中同时定义了 `property`、`__getattribute__()` 和 `__getattr__()` 来对属性进行访问控制，则最先搜索的是 `__getattribute__()` 方法，然而由于 property 对象并不存在 dict 中，因此并不能返回该方法，此时会搜索 property 中定义的 `get()` 方法。当用 `property` 中的 `set()` 方法进行修改并再次访问 `property` 的 `get()` 方法时会抛出异常，这种情况下会触发对 `__getattr__()` 方法的调用。对类变量的访问不会涉及 `__getattribute__()` 和 `__getattr__()` 方法。
+
+### 建议 61：使用更为安全的 property
+
+property 是用来实现属性可管理性的 `built-in` 数据类型（注意：很多地方将 property 称为函数，然而它实际上是一种实现了 `__get__()`、`__set__()` 方法的类，用户也可以根据自己的需要定义个性化的 property），其实质是一种特殊的数据描述符（数据描述符：如果一个对象同时定义了 `__get__()` 和 `__set__()` 方法，则称为数据描述符，如果仅定义了 `__get__()` 方法，则称为非数据描述符）。它和普通描述符的区别在于：普通描述符提供的是一种较为低级的控制属性访问的机制，而 property 是它的高级应用，它以标准库的形式提供描述符的实现，其签名形式为：
+
+`property(fget=None, fset=None, fdel=None, doc=None) -> property attribute`
+
+Property 常见的使用形式有以下几种：
+
+* 第一种形式如下：
+
+  ```python
+  class Some_Class(object):
+      def __init__(self):
+          self._somevalue = 0
+      def get_value(self):
+          return self._somevalue
+      def set_value(self, value):
+          self._somevalue = value
+      def del_attr(self):
+          del self._somevalue
+  	x = property(get_value, set_value, del_attr, "I am the ''x' property.")
+  ```
+
+* 第二种形式如下：
+
+  ```python
+  class Some_Class(object):
+      _x = None
+      def __init__(self):
+          self._x = None
+      @property
+      def x(self):
+          return self._x
+      @x.setter
+      def x(self, value):
+          self._x = value
+      @x.deleter
+      def x(self):
+          del self._x
+  ```
+
+property 的优势可以简单地概括为以下几点：
+
+* 代码更简洁，可读性更强。
+
+* 更好的管理属性的访问。property 将对属性的访问直接转换为对对应的 get、set 等相关函数的调用，属性能够更好地被控制和管理，常见的应用场景如设置校验、检查赋值的范围以及对某个属性进行二次计算之后再返回给用户或者计算某个依赖于其他属性的属性。
+  创建一个 property 实际上就是将其属性的访问与特定的函数关联起来，相对于标准属性的访问，property 的作用相当于一个分发器，对某个属性的访问并不直接操作具体的对象，而对标准属性的访问没有中间这一层，直接访问存储属性的对象。
+
+* 代码可维护性更好。property 对属性进行再包装，以类似于接口的形式呈现给用户，以统一的语法来访问属性，当具体实现需要改变的时候，访问的方式仍然可以保持一致
+
+* 控制属性访问权限，提高数据安全性。如果用户想设置某个属性为只读：
+
+  ```python
+  class PropertyTest(object):
+      def __init__(self):
+          self.__var1 = 20
+      @property
+      def x(self):
+          return self.__var1
+  ```
+
+  值得注意的是，使用 property 并不能真正完全达到属性只读的目的，正如以双下划线命令的变量并不是真正的私有变量一样，这些方法只是在直接修改属性这条道路上增加了一些障碍。
+
+property 本质并不是函数，而是特殊类，既然是类的话，那么就可以被继承，因此用户便可以根据自己的需要定义 property：
+
+```python
+def update_meta(self, other):
+    self.__name__ = other.__name__
+    self.__doc__ = other.__doc__
+    self.__dict__.update(other.__dict__)
+    return self
+
+class UserProperty(property):
+    def __new__(cls, fget=None, fset=None, fdel=None, doc=None):
+        if fget is not None:
+            def __get__(obj, objtype=None, name=fget.__name__):
+                fegt = getattr(obj, name)
+                return fget()
+        	fget = update_meta(__get__, fget)
+        
+        if fset is not None:
+            
+```
 
