@@ -809,3 +809,44 @@ Python 提供了其他方式可以绕过 GIL 的局限，比如使用多进程 m
 
 ### 建议 69：对象的管理与垃圾回收
 
+通常来说 Python 并不需要用户自己来管理内存，它与 Perl、Ruby 等很多动态语言一样具备垃圾回收功能，可以自动管理内存的分配与回收。
+
+Python 中内存管理的方式：Python 使用引用计数器（Reference counting）的方法来管理内存中的对象，即针对每一个对象维护一个引用计数值来表示该对象当前有多少个引用。当其他对象引用该对象时，其引用计数会增加 1，而删除一个队当前对象的引用，其引用计数会减 1。只有当引用计数的值为 0 时的时候该对象才会被垃圾收集器回收，因为它表示这个对象不再被其他对象引用，是个不可达对象。引用计数算法最明显的缺点是无法解决循环引用的问题，即两个对象相互引用。
+
+循环引用常常会在列表、元组、字典、实例以及函数使用时出现。对于由循环引用而导致的内存泄漏的情况，可以使用 Python 自带的一个 gc 模块，它可以用来跟踪对象的“入引用（incoming reference）“和”出引用（outgoing reference）”，并找出复杂数据结构之间的循环引用，同时回收内存垃圾。有两种方式可以触发垃圾回收：一种是通过显式地调用 `gc.collect()` 进行垃圾回收；还有一种是在创建新的对象为其分配内存的时候，检查 threshold 阈值，当对象的数量超过 threshold 的时候便自动进行垃圾回收。默认情况下阈值设为（700，10，10），并且 gc 的自动回收功能是开启的，这些可以通过 `gc.isenabled()` 查看。
+
+```python
+import gc
+print(gc.isenabled())
+print(gc.get_threshold())
+```
+
+一个解决循环引用内存回收的示例：
+
+```python
+def main():
+    collected = gc.collect()
+    print("Garbage collector before running: collected {} objects.".format(collected))
+    print("Creating reference cycles...")
+    A = Leak()
+    B = Leak()
+    A.b = B
+    B.a = A
+    A = None
+    B = None
+    collected = gc.collect()
+	print(gc.garbage)
+    print("Garbage collector after running: collected {} objects".format(collected))
+    
+if __name__ == "__main__":
+    ret = main()
+    sys.exit(ret)
+```
+
+`gc.garbage` 返回的是由于循环引用而产生的不可达的垃圾对象的列表，输出为空表示内存中此时不存在垃圾对象。`gc.collect()` 显示所有收集和销毁的对象的数目，此处为 4（2 个对象 A、B，以及其实例属性 dict）。
+
+如果在类 Leak 中添加析构方法 `__del__()`，会发现 `gc.garbage` 的输出不再为空，而是对象 A、B 的内存地址，也就是说这两个对象在内存中仍然以“垃圾”的形式存在。
+
+实际上当存在循环引用并且当这个环中存在多个析构方法时，垃圾回收器不能确定对象析构的顺序，所以为了安全起见仍然保持这些对象不被销毁。而当环被打破时，gc 在回收对象的时候便会再次自动调用 `__del__()` 方法。
+
+gc 模块同时支持 DEBUG 模式，当设置 DEBUG 模式之后，对于循环引用造成的内存泄漏，gc 并不释放内存，而是输出更为详细的诊断信息为发现内存泄漏提供便利，从而方便程序员进行修复。更多 gc 模块可以参考[文档](http://docs.python.org/2/library/gc.html)
