@@ -728,5 +728,84 @@ foo
 
 ### 建议 67：基于生成器的协程及 greenlet
 
+协程，又称微线程和纤程等，据说源于 Simula 和 Modula-2 语言，现代编程语言基本上都支持这个特性，比如 Lua 和 ruby 都有类似的概念。协程往往实现在语言的运行时库或虚拟机中，操作系统对其存在一无所知，所以又被称为用户空间线程或绿色线程。又因为大部分协程的实现是协作式而非抢占式的，需要用户自己去调度，所以通常无法利用多核，但用来执行协作式多任务非常合适。用协程来做的东西，用线程或进程通常也是一样可以做的，但往往多了许多加锁和通信的操作。
 
+基于生产着消费者模型，比较抢占式多线程编程实现和协程编程实现。线程实现至少有两点硬伤：
+
+* 对队列的操作需要有显式/隐式（使用线程安全的队列）的加锁操作。
+* 消费者线程还要通过 sleep 把 CPU 资源适时地“谦让”给生产者线程使用，其中的适时只能静态地使用经验值。
+
+而使用协程可以比较好地解决：
+
+```python
+# 队列容器
+q = new queue
+# 生产者协程
+loop
+    while q is not full
+    	create some new items
+        add the items to q
+    yield to consume
+# 消费者协程
+loop
+	while q is not empty
+    	remove some items from q
+        use the items
+	yield to produce
+```
+
+但是这样做，损失了利用多核 CPU 的能力。
+
+具体的生成器函数代码：
+
+```python
+def consumer():
+    while True:
+        line = yield
+        print(line.upper())
+def producter():
+    with open("/var/log/apache2/error_log", "r") as f:
+        for i, line in enumerate(f):
+            yield line
+            print("processed line {}".format(i))
+c = consumer()
+c.next()
+for line in producter():
+    c.send(line)
+```
+
+协程，每输出一行大写的文字后都有一行来自主程序的处理信息，不会像抢占式的多线程程序那样“乱序”。Python2.X 版本的生成器无法实现所有的协程特性，是因为缺乏对协程之间复杂关系的支持。比如一个 yield 协程依赖另一个 yield 协程，且需要由最外层往最内层进行传值的时候，就没有解决办法。
+
+这个问题直到 Python3.3 增加了 `yield from` 表达式以后才得以解决，通过 `yield from`，外层的生成器在接收到 `send()` 或 `throw()` 调用时，能够把实参直接传入内层生成器。
+
+因为 Python2.x 版本对协程的支持有限，而协程又是非常有用的特性，所以很多 Pythonista 就开始寻求语言之外的解决方案，并编写了一系列的程序库，其中最受欢迎的是 greenlet。
+
+greenlet 是一个 C 语言编写的程序库，它与 yield 关键字没有密切的关系。greenlet 这个库里最为关键的一个类型就是 PyGreenlet 对象，它是一个 C 结构体，每一个 PyGreenlet 都可以看到一个调用栈，从它的入口函数开始，所有的代码都在这个调用栈上运行。它能够随时记录代码运行现场，并随时中止，以及恢复。它跟 yield 所能够做到的相似，但更好的是它提供从一个 PyGreenlet 切换到另一个 PyGreenlet 的机制。
+
+协程虽然不能充分利用多核，但它跟异步 I/O 结合起来以后编写 I/O 密集型应用非常容易，能够在同步的代码表面下实现异步的执行，其中的代表当属将 greenlet 与 libevent/libev 结合起来的 gevent 程序库，它是 Python 网络编程库。最后，以 gevent 并发查询 DNS 的例子为例，使用它进行并发查询 n 个域名，能够获得几乎 n 倍的性能提升：
+
+```python
+import gevent
+from gevent import socket
+urls = ["www.google.com", "www.example.com", "www.python.org"]
+jobs = [gevent.spawn(socket.gethostbyname, url) for url in urls]
+gevent.joinall(jobs, timeout=2)
+print([job.value for job in jobs])
+```
+
+### 建议 68：理解 GIL 的局限性
+
+ 多线程 Python 程序运行的速度比只有一个线程的时候还要慢，除了程序本身的并行性之外，很大程度上与 GIL 有关。由于 GIL 的存在，多线程编程在 Python 中并不理想。GIL 被称为全局解释器锁（Global Interpreter Lock），是 Python 虚拟机上用作互斥线程的一种机制，它的作用是保证任何情况下虚拟机中只会有一个线程被运行，而其他线程都处于等待 GIL 锁被释放的状态。不管是在单核系统还是多核系统中，始终只有一个获得了 GIL 锁的线程在运行，每次遇到  I/O 操作便会进行 GIL 锁的释放。
+
+但如果是纯计算的程序，没有 I/O 操作，解释器则会根据 sys.setcheckinterval 的设置来自动进行线程间的切换，默认情况下每隔 100 个时钟（这里的时钟指的是 Python 的内部时钟，对应于解释器执行的指令）就会释放 GIL 锁从而轮换到其他线程的执行。
+
+在单核 CPU 中，GIL 对多线程的执行并没有太大影响，因为单核上的多线程本质上就是顺序执行的。但对于多核 CPU，多线程并不能真正发挥优势带来效率上明显的提升，甚至在频繁 I/O 操作的情况下由于存在需要多次释放和申请 GIL 的情形，效率反而会下降。
+
+鉴于 Python 中对象的管理与引用计数器，在 Python 解释器中引入了 GIL，以保证对虚拟机内部共享资源访问的互斥性。GIL 的引入确实使得多线程不能再多核系统中发挥优势，但它也带来了一些好处：大大简化了 Python 线程中共享资源的管理，在单核 CPU 上，由于其本质是顺序执行的，一般情况下多线程能够获得较好的性能。此外，对于扩展的 C 程序的外部调用，即使其不是线程安全的，但由于 GIL 的存在，线程会阻塞直到外部调用函数返回，线程安全不再是一个问题。
+
+针对 Python1.5，Greg Stein 发布了一个补丁，该补丁中 GIL 被完全移除，使用高粒度的锁来代替，然而多核多线程速度的提升并没有随着核数的增加而线性增长，反而给单线程程序的执行速度带来了一定的代价，速度大约降低了 40%。在 Python3.2 中重新实现了 GIL，其实现机制主要集中在两个方面：一方面是使用固定的时间而不是固定数量的操作指令来进行线程的强制切换；另一个方面是在线程释放 GIL 后，开始等待，直到某个其他线程获取 GIL 后，再开始尝试去获取 GIL，这样虽然可以避免此前获得 GIL 的线程，不会立即再次获取 GIL，但仍然无法保证优先级高的线程优先获取 GIL。这种方式只能解决部分问题，并未改变 GIL 的本质。
+
+Python 提供了其他方式可以绕过 GIL 的局限，比如使用多进程 multiprocess 模块或者采用 C 语言扩展的方式，以及通过 ctypes 和 C 动态库来充分利用物理内核的计算能力。
+
+### 建议 69：对象的管理与垃圾回收
 
