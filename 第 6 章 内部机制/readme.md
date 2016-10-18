@@ -401,6 +401,236 @@ class UserProperty(property):
         	fget = update_meta(__get__, fget)
         
         if fset is not None:
-            
+            def __set__(obj, value, name=fset.__name__):
+                fset = getattr(obj, name)
+				return fset(value)
+        	fset = update_meta(__set__, fset)
+        
+        if fdel is not None:
+            def __delete__(obj, name=fdel.__name__):
+                fdel = getattr(obj, name)
+                return fdel()
+            fdel = update_meta(__delete__, fdel)
+        return property(fget, fset, fdel, doc)
+    
+class C(object):
+    def get(self):
+        return self._x
+    def set(self, x):
+        self._x = x
+    def delete(self):
+        del self._x
+    x = UserProperty(get, set, delete)
 ```
 
+上例中 UserProperty 继承自 property，其构造函数 `__new__(cls, fget=None, fset=None, fdel=None, doc=None)` 中重新定义了 `fget()`、`fset()` 以及 `fdel()` 方法以满足用户特定的需要，最后返回的对象实际还是 property 的实例，因此用户能够像使用 property 一样使用 UserProperty。
+
+使用 property 并不能真正完全达到属性只读的目的，用户仍然可以绕过阻碍来修改变量。真正实现只读属性的可行实现：
+
+```python
+def ro_property(obj, name, value):
+    setattr(obj.__class__, name, property(lambda obj: obj.__dict__["__" + name]))
+    setattr(obj, "__" + name, value)
+    
+class ROClass(object):
+    def __init__(self, name, available):
+        ro_property(self, "name", name)
+        self.available = available
+        
+a = ROClass("read only", True)
+print(a.name)
+a._Article__name = "modify"
+print(a.__dict__)
+print(ROClass.__dict__)
+print(a.name)
+```
+
+### 建议 62：掌握 metaclass
+
+什么是元类？
+
+* 元类是关于类的类，是类的模版
+* 元类是用来控制如何创建类的，正如类是创建对象的模版一样
+* 元类的实例为类，正如类的实例为对象
+
+当使用关键字 class 的时候，Python 解释器在执行的时候就会创建一个对象（这里的对象是指类而非类的实例）
+
+既然类是对象，那么它就有其所属的类型，也一定还有什么东西能够控制它的生成。通过 type 查看会发现 UserClass 的类型为 type，而其对象 UserClass() 的类型为类 A。
+
+同时我们知道 type 还可以这样使用：
+
+`type(类名，父类的元组（针对继承的情况，可以为空)，包含属性的字典（名称和值））`
+
+type 通过接受类的描述符作为参数返回一个对象，这个对象可以被继承，属性能够被访问，它实际是一个类，其创建由 type 控制，由 type 所创建的对象的 `__class__` 属性为 type。type 实际上是 Python 的一个内建元类，用来指导类的生成。当然，除了使用内建元类 type，用户也可以通过继承 type 来自定义元类。
+
+利用元类实现强制类型检查：
+
+```python
+class TypeSetter(object):
+    def __init__(self, fieldtype):
+        self.fieldtype = fieldtype
+    def is_valid(self, value):
+        return isinstance(value, self.fieldtype)
+class TypeCheckMeta(type):
+    def __new__(cls, name, bases, dict):
+        return super(TypeCheckMeta, cls).__new__(cls, name, bases, dict)
+    def __init__(cls, name, bases, dict):
+        cls._fields = {}
+        for key, value in dict.items():
+            if isinstance(value, TypeSetter):
+                cls._fields[key] = value
+  def sayHi(cls):
+      print("Hi")
+```
+
+TypeSetter 用来设置属性的类型，TypeCheckMeta 为用户自定义的元类，覆盖了 type 元类中的 `__new__()` 方法和 `__init__()` 方法，虽然也可以直接使用 `TypeCheckMeta(name, bases, dict)` 这种方式来创建类，但更为常见的是在需要被生成的类中设置 `__metaclass__` 属性，两种用法是等价的：
+
+```python
+class TypeCheck(object):
+    __metaclass__ = TypeCheckMeta
+    def __setattr__(self, key, value):
+        if key in self._fields:
+            if not self._fields[key].is_valid(value):
+                raise TypeError("Invalid type for field")
+            super(TypeCheck, self).__setattr__(key, value)
+            
+class MetaTest(TypeCheck):
+    name = TypeSetter(str)
+    num = TypeSetter(int)
+    
+mt = MetaTest()
+mt.name = "apple"
+mt.num = "test"
+```
+
+当类中设置了 `__metaclass__` 属性的时候，所有继承自该类的子类都将使用所设置的元类来指导类的生成。
+
+实际上，在新式类中当一个类未设置 `__metaclass__` 属性的时候，它将使用默认的 `type` 元类来生成类。而当该属性被设置时查找规则如下：
+
+* 如果存在 `dict["__metaclass__"]`，则使用对应的值来构建类；否则使用其父类 `dict["__metaclass__"]` 中所指定的元类来构建类，当父类中也不存在指定的 `metaclass` 的情形下使用默认元类 type。
+* 对于古典类，条件 1不满足的情况下，如果存在全局变量 `__metaclass__`，则使用该变量所对应的元类来构建类；否则使用 `type.ClassType`。
+
+需要额外提醒的是，元类中所定义的方法为其所创建的类的类方法，并不属于该类的对象。比如上例中的 `mt.sayHi()` 会抛出异常，正确调用方法为：`MetaTest.sayHi()`。
+
+什么情况下会用到元类？有句话是这么说的：当你面临一个问题还在纠结要不要使用元类的时候，往往会有其他的更为简单的解决方案。
+
+几个使用元类的场景：
+
+* 利用元类来实现单例模式：
+
+  ```python
+  class Singleton(type):
+      def __init__(cls, name, bases, dic):
+          super(Singleton, cls).__init__(name, bases, dic)
+          cls.instance = None
+      def __call__(cls, *args, **kwargs):
+          if cls.instance is None:
+              cls.instance = super(Singleton, cls).__call__(*args, **kwargs)
+          else:
+              print("warning: only allowed to create one instance, minstance already exists!")
+          return cls.instance
+
+  class MySingleton(object):
+      __metaclass__ = Singleton
+  ```
+
+* 第二个例子来源于 Python 的标准库 string.Template.string，它提供简单的字符串替换功能。`Template("$name $age").substitute({"name":"admin"}, age=26)`
+
+  该标准库的源代码中就用到了元类，`Template` 的元类为 `_TemplateMetaclass`。`_TemplateMetaclass` 的 `__init__()` 方法通过查找属性（pattern、delimiter 和 idpattern）并将其构建为一个编译好的正则表达式存放在 pattern 属性中。用户如果需要自定义分隔符（delimiter）可以通过继承 Template 并覆盖它的类属性 delimiter 来实现。
+
+  另外在 Django ORM、AOP 编程中也有大量使用元类的情形。
+
+
+谈谈关于元类需要注意的几点：
+
+* 区别类方法与元方法（定义在元类中的方法）。元方法可以从元类或者类中调用，而不能从类的实例中调用；但类方法可以从类中调用，也可以从类的实例中调用
+* 多继承需要严格限制，否则会产生冲突。因为 Python 解释器并不知道多继承的类是否兼容，因此会发出冲突警告。解决冲突的办法是重新定义一个派生的元类，并在要集成的类中将其 `__metaclass__` 属性设置为该派生类。
+
+### 建议 63：熟悉 Python 对象协议
+
+ 因为 Python 是一门动态语言，Duck Typing 的概念遍布其中，所以其中的 Concept 并不以类型的约束为载体，而另外使用称为协议的概念。在 Python 中就是我需要调用你某个方法，你正好就有这个方法。比如在字符串格式化中，如果有占位符 %s，那么按照字符串转换的协议，Python 会自动地调用相应对象的 `__str__()` 方法。
+
+除了 `__str__()` 外，还有其他的方法，比如 `__repr__()`、`__init__()`、`__long__()`、`__float__()`、`__nonzero__()` 等，统称类型转换协议。除了类型转换协议之外，还要许多其他协议。
+
+* 用以比较大小的协议，这个协议依赖于 `__cmp__()`，与 C 语言库函数 cmp 类似，当两者相等时，返回 0，当 `self < other` 时返回负值，反之返回正值。因为这种复杂性，所以 Python 又有 `__eq__()`、`__ne__()`、`__lt__()`、`__gt__()` 等方法来实现相等、不等、小于和大于的判定。这也就是 Python 对 `==`、`!=`、`<` 和 `>` 等操作符的进行重载的支撑机制。
+* 数值类型相关的协议，这一类的函数比较多。基本上，只要实现了那么几个方法，基本上就能够模拟数值类型了。不过还需要提到一个 Python 中特有的概念：反运算。类似 `__radd__()` 的方法，所有的数值运算符和位运算符都是支持的，规则也是一律在前面加上前缀 r 即可。
+
+
+* 容器类型协议。容器的协议是非常浅显的，既然为容器，那么必然要有协议查询内含多少对象，在 Python 中，就是要支持内置函数 `len()`，通过 `__len__()` 来完成。而 `__getitem__()`、`__setitem__()`、`__delitem__()` 则对应读、写和删除，也很好理解。`__iter__()` 实现了迭代器协议，而 `__reversed__()` 则提供对内置函数 `reversed()` 的支持。容器类型中最有特色的是对成员关系的判断符 in 和 not in 的支持，这个方法叫 `__contains__()`，只要支持这个函数就能够使用 in 和 not in 运算符了。
+
+* 可调用对象协议。所谓可调用对象，即类似函数对象，能够让类实例表现得像函数一样，这样就可以让每一个函数调用都有所不同。
+
+  ```python
+  class Functor(object):
+      def __init__(self, context):
+          self._context = context
+      def __call__(self):
+          print("do something with {}".format(self._context))
+  lai_functor = Functor("lai")
+  yong_functor = Functor("yong")
+  lai_functor()
+  yong_functor()
+  ```
+
+* 与可调用对象差不多的，还有一个可哈希对象，它是通过 `__hash__()` 方法来支持 `hash()` 这个内置函数的，这在创建自己的类型时非常有用，因为只有支持可哈希协议的类型才能作为 dict 的键类型（不过只要继承自 object 的新式类就默认支持了）
+
+* 对描述符协议和属性交互协议（`__getattr__()`、`__setattr__()`、`__delattr__()`），还有上下文管理器协议，也就是对 with 语句的支持，这个协议通过 `__enter__()` 和 `__exit__()` 两个方法来实现对资源的清理，确保资源无论在什么情况下都会正常清理。
+
+协议不像 C++、Java 等语言中的接口，它更像是声明，没有语言上的约束力。
+
+### 建议 64：使用操作符重载实现中缀语法
+
+模拟 C++ 的流输出，是一种对特性的滥用，不应提倡。
+
+管道的处理非常清晰，因为它是中缀语法，而我们常用的 Python 是前缀语法，比如类似的 Python 代码应该是 `sort(ls(), reverse=True)`。
+
+管道符号在 Python 中，也是或符号，由 Julien Palard 开发了一个 pipe 库，这个 pipe 库的核心代码只有几行，就是重载了 `__ror__()` 方法：
+
+```python
+class Pipe:
+    def __init__(self, function):
+        self.function = function
+    def __ror__(self, other):
+        return self.function(other)
+    def __call__(self, *args, **kwargs):
+        return Pipe(lambda x: self.function(x, *args, **kwargs))
+```
+
+这个 Pipe 类可以当成函数的 decorator 来使用：
+
+```python
+@Pipe
+def where(iterable, predicate):
+    return (x for x in iterable if (predicate(x)))
+```
+
+`pipe` 库内置了一堆这样的处理函数，比如 `sum`、`select`、`where` 等函数尽在其中：
+
+```python
+fib() | take_while(lambda x: x < 1000000) \
+      | where(lambda x: x % 2) \
+      | select(lambda x: x * x) \
+      | sum()
+```
+
+这段代码就是找出小于 1000000 的斐波那契数，并计算其中的偶数的平方之和。
+
+此外，pipe 是惰性求值的，所以我们完全可以弄一个无穷生成器而不用担心内存被用完。
+
+除了处理数值很方便，用它来处理文本也一样简单。比如读取文件，统计文件中每个单词出现的次数，然后按照次数从高到低对单词排序：
+
+```python
+from __future__ import print_function
+from re import split
+from pipe import *
+with open("test_descriptor.py") as f:
+    print(f.read()
+          | Pipe(lambda x: split("/W+", x))
+          | Pipe(lambda x:(i for i in x if i.strip()))
+          | groupby(lambda x:x)
+          | select(lambda x:(x[0], (x[1] | count)))
+          | sort(key=lambda x: x[1], reverse=True)
+         )
+```
+
+### 建议 65：熟悉 Python 的迭代器协议
