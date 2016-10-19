@@ -126,5 +126,91 @@ version = 0.0.1
   * 测试固件（test fixtures）：测试相关的准备工作和清理工作，基于类 TestCase 创建测试固件的时候通常需要重新实现 `setUp()` 和 `tearDown()` 方法。当定义了这些方法的时候，测试运行器会在运行测试之前和之后分别调用这两个方法
   * 测试用例（test case）：最小的测试单元，通常基于 TestCase 构建
   * 测试用例集（test suite）：测试用例的集合，使用 TestSuite 类来实现，除了可以包含 TestCase 外，也可以包含 TestSuite
-  * 测试运行期（test runner）：控制和驱动整个单元测试过程，一般使用 TestRunner 类作为测试用例的基本执行环境，常用的运行器为 TextTestRunner，它是 TestRunner 的子类，以文字方式运行测试并报告结果。
+  * 测试运行器（test runner）：控制和驱动整个单元测试过程，一般使用 TestRunner 类作为测试用例的基本执行环境，常用的运行器为 TextTestRunner，它是 TestRunner 的子类，以文字方式运行测试并报告结果。
+
+
+用 TestSuite 类来组织 TestCase，TestSuite 类可以看成是 TestCase 类的一个容器，用来对多个测试用例进行组织，这样多个测试用例可以自动在一次测试中全部完成。
+
+```python
+suite = unittest.TestSuite()
+suite.addTest(MyCalTest("testAdd"))
+suite.addTest(MyCalTest("testSub"))
+runner = unittest.TextTestRunner()
+runner.run(suite)
+```
+
+运行命令：`python -m unittest -v MyCalTest`
+
+### 建议 74：为包编写单元测试
+
+实际项目中的测试有不少麻烦：
+
+* 程序员希望测试更加自动化
+
+* 一个测试用例往往在测试之前需要进行打桩或做一些准备工作，在测试之后要清理现场，最好有一个框架可以自动完成这些工作
+
+* 对于大项目，大量的测试用例需要分门分类地放置，而测试之后，分别产生相应的测试报告
+
+unittest 框架，除了 自动匹配调用以 test 开头的方法之外，`unittest.TestCase` 还有模板方法 `setUp()` 和 `tearDown()`，通过覆盖这两个方法，能够实现在测试之前执行一些准备工作，并在测试之后清理现场。
+
+可以使用 `unittest` 测试发现（test discover）功能：`python -m unittest discover`，unittest 将递归地查找当前目录下匹配 `test*.py` 模式的文件，并将其中 `unittest.TestCase` 的所有子类都实例化，然后调用相应的测试方法进行测试。
+
+`unittest` 的测试发现功能是 Python2.7 版本中才有的，如果使用更旧的版本，需要安装 `unittest2`
+
+除此之外，`setuptools` 对 `distutils.command` 进行了扩展，增加了命令 test。这个命令执行的时候，先运行 `egg_info` 和 `build_ext` 子命令构建项目，然后把项目路径加到 `sys.path` 中，再搜寻所有的测试套件（`test suite`，通常指多个测试用例或测试套件的组合），并运行之。要使用这个扩展命令，需要在调用 `setup()` 函数的时候向它传递 `test_suite` 元数据，例如：
+
+```python
+# setup.py
+...
+setup(name = "arithmetic",
+     ...
+     test_suite = "test_arithmetic",
+     ...
+```
+
+`test_suite` 元数据的值可以指向一个包、模块、类或函数，比如在 flask 项目中，是 `test_suite = "flask.testsuite.suite"`，其中 `flask.testsuite.suite` 是一个函数；而在 `arithmetic` 项目中，`test_arithmetic` 是一个模块。
+
+使用 `setuptools` 的测试发现功能，可以给开发人员更一致的开发体验，就像使用 `build`、`install` 命令一样。但是来自 unittest 本身的缺陷让开发人员想要找到一个更好的测试框架：
+
+* unittest 并不够 Pythonic，比如从 JUnit 中继承而来的首字母小写的骆驼命名法；所有的测试用例都需要从 TestCase 集成
+* unittest 的 `setUp()` 和 `tearDown()` 只是在 TestCase 的层面上提供，即每一个测试用例执行的时候都会运行一遍，如果有多个模块需要测试，那么创建环境和清理现场操作都会带来大量工作
+* unittest 没有插件机制进行功能扩展，比如想要增加测试覆盖统计特性就非常困难。
+
+`nose` 就是作为更好的测试框架进入视线的，而它更是一个具有更强大的测试发现运行的程序。此外，nose 定义了插件机制，使得扩展 nose 的功能成为可能（默认自带 coverage 插件）。使用 pip 安装后，就多了一个 `nosetests` 命令可以使用：`nosetests -v`
+
+可以看到 nose 能够自动发现测试用例，并调用执行，由于它与原有的 unittest 测试用例兼容，所以可以随时将它引入到项目中来。其实 nose 的测试发现机制更进一步，它抛弃了 unittest 中 测试用例必须放在 TestCase 子类中的限制，只要命名符合 `(?:^|[b_.-])[Tt]est` 正则表达式的类和函数都可作为测试用例运行。
+
+此外，nose 作为一个测试框架，也提供了与 `unittest.TestCase` 类似的断言函数，但它抛弃了 `unittest` 的那种 Java 风格的命令方式，使用的是符合 PEP8 的命名方式。
+
+针对 `unittest` 中 `setUp()` 和 `tearDown()` 只能放在 TestCase 中的问题，`nose` 提供了 3 个级别的解决方案，这些配置和清理函数，可以放在包（`__init__.py` 文件中）、模块和测试用例中，非常完全地解决了不同层次的测试需要的配置和清理需求。
+
+最后，`nose` 与 `setuptools` 的集成更加友好，提供了 `nose.collector` 作为通过的测试套件，让开发人员无须针对不同项目编写不同的套件。需要对 `setup.py` 作如下修改：
+
+```python
+# setup.py
+setup(name = "arithmetic",
+     ...
+     # test_suite = "test_arithmetic",
+     test_suite = "nose.collector",
+     ...
+```
+
+然后运行 `python setup.py test`，得到的结果是一样的。因为使用 `nose.collector` 之后，`test_siuite` 元数据就确定不变了，所以它也非常适合写入 `paster` 的模板中去，在构建目录的时候自动生成。
+
+### 建议 75：利用测试驱动开发提高代码的可测性
+
+测试驱动开发（Test Driven Development，TDD）是敏捷开发中一个非常重要的理念，它提倡在真正开始编码之前测试先行，先编写测试代码，再在其基础上通过基本迭代完成编码，并不断完善。一般来说，遵循以下过程：
+
+* 编写部分测试用例，并运行测试
+* 如果测试通过，则回到测试用例编写的步骤，继续添加新的测试用例
+* 如果测试失败，则修改代码直到通过测试
+* 当所有测试用例编写完成并通过测试之后，再来考虑对代码进行重构
+
+关于测试驱动开发和提高代码可测性方面有几点需要说明：
+
+* TDD 只是手段而不是目的，因此在实践中尽量只验证正确的事情，并且每次仅仅验证一件事。当遇到问题时不要局限于 TDD 本身所涉及的一些概念，而应该回头想想采用 TDD 原本的出发点和目的是什么
+* 测试驱动开发本身就是一门学问
+* 代码的不可测性可以从以下几个方面考量：实践 TDD 困难；外部依赖太多；需要写很多模拟代码才能完成测试；职责太多导致功能模糊；内部状态过多且没有办法去操作和维护这些状态；函数没有明显返回或者参数过多；低内聚高耦合等等。
+
+### 建议 76：使用 Pylint 检查代码风格
 
