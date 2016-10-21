@@ -495,3 +495,289 @@ if __name__ == "__main__":
 
 ### 建议 89：使用线程池提高效率
 
+我们知道线程的生命周期分为 5 个状态：创建、就绪、运行、阻塞和终止。自线程创建到终止，线程便不断在运行、就绪和阻塞这 3 个状态之间转换直至销毁。而真正占有 CPU 的只有运行、创建和销毁这 3 个状态。一个线程的运行时间由此可以分为 3 部分：线程的启动时间（Ts）、线程体的运行时间（Tr）以及线程的销毁时间（Td）。在多线程处理的情境中，如果线程不能够被重用，就意味着每次创建都需要经过启动、销毁和运行这 3 个过程。这必然会增加系统的相应时间，降低效率。而线程体的运行时间 Tr 不可控制，在这种情况下要提高线程运行的效率，线程池便是一个解决方案。
+
+线程池通过实现创建多个能够执行任务的线程放入池中，所要执行的任务通常被安排在队列中。通常情况下，需要处理的任务比线程的数目要多，线程执行完当前任务后，会从队列中取下一个任务，直到所有的任务已经完成。
+
+由于线程预先被创建并放入线程池中，同时处理完当前任务之后并不销毁而是被安排处理下一个任务，因此能够避免多次创建线程，从而节省线程创建和销毁的开销，带来更好的性能和系统稳定性。线程池技术适合处理突发性大量请求或者需要大量线程来完成任务、但任务实际处理时间较短的应用场景，它能有效避免由于系统中创建线程过多而导致的系统性能负载过大、响应过慢等问题。
+
+Python 中利用线程池有两种解决方案：一是自己实现线程池模式，二是使用线程池模块。
+
+#### 一个线程池模式的简单实现
+
+```python
+import Queue, sys, threading
+import urllib2, os
+
+# 处理 request 的工作线程
+class Worker(threading.Thread):
+    def __init__(self, workQueue, resultQueue, **kwargs):
+        threading.Thread.__init__(self, **kwargs)
+        self.setDaemon(True)
+        self.workQueue = workQueue
+        self.resultQueue = resultQueue
+        
+	def run(self):
+        while True:
+            try:
+                callable, args, kwargs = self.workQueue.get(False)	# 从队列中取出一个任务
+                res = callable(*args, **kwargs)
+                self.resultQueue.put(res)	# 存放处理结果到队列中
+            except Queue.Empty:
+                break
+                
+class WorkManager:	# 线程池管理器
+    def __init__(self, num_of_workers=10):
+        self.workQueue = Queue.Queue()	# 请求队列
+        self.resultQueue = Queue.Queue()	# 输出结果的队列
+        self.workers = []
+        self._recruitThreads(num_of_workers)
+        
+	def _recruitThreads(self, num_of_workers):
+        for i in range(num_of_workers):
+            worker = Worker(self.workQueue, self.resultQueue)	# 创建工作线程
+            self.workers.append(worker)	# 加入线程队列中
+    
+    def start(self):	# 启动线程
+        for w in self.workers:
+            w.start()
+            
+	def wait_for_complete(self):
+        while len(self.workers):
+            worker = self.workers.pop()	# 从池中取出一个线程处理请求
+            worker.join()
+            if worker.isAlive() and not self.workQueue.empty():
+                self.workers.append(worker)	# 重新加入线程池中
+        print("All jobs were completed")
+        
+	def add_job(self, callable, *args, **kwargs):
+        self.workQueue.put((callable, args, kwargs))	# 在工作队列中加入青丘
+        
+	def get_result(self, *args, **kwargs):	# 获取处理结果
+        return self.resultQueue.get(*args, **kwargs)
+    
+    def download_file(url):
+        print("begin download {}".format(url))
+        urlhandler = urllib2.urlopen(url)
+        fname = os.path.basename(url) + ".html"
+        with open(fname, "wb") as f:
+            while True:
+                chunk = urlhandler.read(1024)
+                if not chunk:
+                    break
+                f.write(chunk)
+                
+urls = ["http://wiki.python.org/moni/WebProgramming",
+       "https://www.createspace.com/3611970",
+       "http://wiki.python.org/moin/Documention"]
+wm = WorkerManager(2)	# 创建线程池
+for i in urls:
+    wm.add_job(download_file, i)	# 将所有请求加入队列中
+wm.start()
+wm.wait_for_complete()
+```
+
+自行实现线程池，需要定义一个 Worker 处理工作请求，定义 WorkerManager 来进行线程池的管理和创建，它包含一个工作请求队列和执行结果队列，具体的下载工作通过 `download_file()` 方法来实现。
+
+相比自己实现的线程池模型，使用现成的线程池模块往往更简单。Python 中线程池模块的下载地址为：https://pypi.python.org/pypi/threadpool。该模块提供了以下基本类和方法：
+
+* `threadpool.ThreadPool`：线程池类，主要的作用是用来分派任务请求和收集运行结果。主要有以下方法：
+  * `__init__(self, num_workers, q_size=0, resq_size=0, poll_timeout=5)`：建立线程池，并启动对应 `num_workers` 的线程；`q_size` 表示任务请求队列的大小，`resq_size` 表示存放运行结果队列的大小。
+  * `createWorkers(self, num_workers, poll_timeout=5)`：将 `num_workers` 数量对应的线程加入线程池中。
+  * `dismissWorkers(self, num_workers, do_join=False)`：告诉 `num_workers` 数量的工作线程当执行完当前任务后退出
+  * `joinAllDismissedWorkers(self)`：在设置为退出的线程上执行 `Thread.join`
+  * `putRequest(self, request, block=True, timeout=None)`：将工作请求放入队列中
+  * `poll(self, block=False)`：处理任务队列中新的请求
+  * `wait(self)`：阻塞用于等待所有执行结果。注意当所有执行结果返回后，线程池内部的线程并没有销毁，而是在等待新的任务。因此，`wait()` 之后仍然可以再次调用 `pool.putRequests()` 往其中添加任务
+* `threadpool.WorkRequest`：包含有具体执行方法的工作请求类
+* `threadpool.WorkerThread`：处理任务的工作线程，主要有 `run()` 方法以及 `dismiss()` 方法。
+* `makeRequests(callable_, args_list, callback=None, exec_callback=_handle_thread_exception)`：主要函数，作用是创建具有相同的执行函数但参数不同的一系列工作请求。
+
+#### 用线程池实现的例子
+
+```python
+import urllib2
+import os
+import time
+import threadpool
+
+def download_file(url):
+    print("begin download {}".format(url ))
+    urlhandler = urllib2.urlopen(url)
+    fname = os.path.basename(url) + ".html"
+    with open(fname, "wb") as f:
+        while True：
+        	chunk = urlhandler.read(1024)
+            if not chunk:
+                break
+            f.write(chunk)
+            
+urls = ["http://wiki.python.org/moni/WebProgramming",
+       "https://www.createspace.com/3611970",
+       "http://wiki.python.org/moin/Documention"]
+pool_size = 2
+pool = threadpool.ThreadPool(pool_size)	# 创建线程池，大小为 2
+requests = threadpool.makrRequests(download_file, urls)	# 创建工作请求
+[pool.putRequest(req) for req in requests]
+
+print("putting request to pool")
+pool.putRequest(threadpool.WorkRequest(download_file, args=["http://chrisarndt.de/projects/threadpool/api/",]))	# 将具体的请求放入线程池
+pool.putRequest(threadpool.WorkRequest(download_file, args=["https://pypi.python.org/pypi/threadpool",]))
+pool.poll()	# 处理任务队列中的新的请求
+pool.wait()
+print("destory all threads before exist")
+pool.dismissWorkers(pool_size, do_join=True)	# 完成后退出
+```
+
+### 建议 90：使用 C/C++ 模块扩展高性能
+
+Python 具有良好的可扩展性，利用 Python 提供的 API，如宏、类型、函数等，可以让 Python 方便地进行 C/C++ 扩展，从而获得较优的执行性能。所有这些 API 却包含在 Python.h 的头文件中，在编写 C 代码的时候引入该头文件即可。
+
+* 先用 C 实现相关函数，也可以直接使用 C 语言实现相关函数功能后再使用 Python 进行包装。
+
+```c++
+#include "Python.h"
+static PyObject * pr_isprime(PyObject, *self, PyObject * args) {
+  int n, num;
+  if (!PyArg_ParseTuple(args, "i", &num))	// 解析参数
+    return NULL;
+  if (num < 1) {
+    return Py_BuildValue("i", 0);	// C 类型的数据结构转换成 Python 对象
+  }
+  n = num - 1;
+  while (n > 1) {
+    if (num % n == 0) {
+      return Py_BuildValue("i", 0);
+      n--;
+    }
+  }
+  return Py_BuildValue("i", 1);
+}
+
+static PyMethodDef PrMethods[] = {
+  {"isPrime", pr_isprime, METH_VARARGS, "check if an input number is prime or not."},
+  {NULL, NULL, 0, NULL}
+};
+
+void initpr(void) {
+  (void) Py_InitModule("pr", PrMethods);
+}
+```
+
+上面的代码包含以下 3 部分：
+
+* 导出函数：C 模块对外暴露的接口函数 `pr_isprime`，带有 self 和 args 两个参数，其中参数 args 中包含了 Python 解释器要传递给 C 函数的所有参数，通常使用函数 `PyArg_ParseTuple()` 来获得这些参数值
+* 初始化函数：以便 Python 解释器能够对模块进行正确的初始化，初始化时要以 init 开头，如 `initp`
+* 方法列表：提供给外部的 Python 程序使用的一个 C 模块函数名称映射表 `PrMethods`。它是一个 PyMethodDef 结构体，其中成员依次表示方法名、导出函数、参数传递方式和方法描述。
+
+```c
+struct PyMethodDef {
+  char * m1_name;		// 方法名
+  PyCFunction m1_meth;	// 导出函数
+  int m1_flags;			// 参数传递方法
+  char * m1_doc;		// 方法描述
+}
+```
+
+参数传递方法一般设置为 `METH_VARARGS`，如果想传入关键字参数，则可以将其与 `METH_KEYWORDS` 进行或运算。若不想接受任何参数，则可以将其设置为 `METH_NOARGS`。该结构体必须与 `{NULL, NULL, 0, NULL}` 所表示的一条空记录来结尾。
+
+* 编写 `setup.py` 脚本
+
+```python
+from distutils.core import setup, Extension
+module = Extension("pr", sources=["testextend.c"])
+setup(name="Pr test", version="1.0", ext_modules=[module])
+```
+
+* 使用 `python setup.py build` 进行编译，系统会在当前目录下生成一个 `build` 子目录，里面包含 `pr.so` 和 `pr.o` 文件。
+* 将生成的文件 `py.so` 复制到 Python 的 `site_packages` 目录下，或者将 `pr.so` 所在目录的路径添加到 `sys.path` 中，就可以使用 C 扩展的模块了。
+
+更多关于 C 模块扩展的内容可以[参考](http://docs.python.org/2/c-api/index.html)
+
+#### 建议 91：使用 Cython 编写扩展模块
+
+`Python-API` 让大家可以方便地使用 `C/C++` 编写扩展模块，从而通过重写应用中的瓶颈代码获得性能提升。但是，这种方式仍然有几个问题：
+
+* 掌握 C/C++ 编程语言、工具链有巨大的学习成本
+* 即便是 C/C++ 熟手，重写代码也有非常多的工作，比如编写特定数据结构、算法的 C/C++ 版本，费时费力还容易出错
+
+所以整个 Python 社区都在努力实现一个 ”编译器“，它可以把 Python 代码直接编译成等价的 C/C++ 代码，从而获得性能提升。这类工具有 `Pyrex、Py2C 和 Cython` 等。而从 Pyrex 发展而来的 Cython 是其中的集大成者。
+
+Cython 通过给 Python 代码增加类型声明和直接调用 C 函数，使得从 Python 代码中转换的 C 代码能够有非常高的执行效率。它的优势在于它几乎支持全部 Python 特性，也就是说，基本上所有的 Python 代码都是有效的 Cython 代码，这使得将 Cython 技术引入项目的成本降到最低。除此之外，Cython 支持使用 decorator 语法声明类型，甚至支持专门的类型声明文件，以使原有的 Python 代码能够继续保持独立，这些特性都使得它得到广泛应用，比如 `PyAMF、PyYAML` 等库都使用它编写自己的高效率版本。
+
+安装 `Cython`：`pip install -U cython`
+
+直接拿一个 `arithmetic.py` 尝试一下，执行命令 `cython arithmetic.py`，会生成一个 `arithmetic.c` 文件，而且包含了巨量难以看懂的代码，不过机器生成的代码本来就不是为了给人看的，所以还是交给编译器吧：
+
+`gcc -shared -pthread -fPIC -fwrapv -02 -Wall -fno-strict-aliasing -I /usr/include/python2.7 -o arithmetic.so arithmetic.c`
+
+等待编译、链接工作完成后，`arithmethic.so` 文件就生成了。这时候可以像 `import` 普通的 Python 模块一样使用它。
+
+每一次都需要编译、等待有点麻烦，所以 Cython 很体贴地提供了无需显式编译的方案：pyximport。只要将原有的 Python 代码后缀名从 `.py` 改为 `.pyx` 即可：
+
+```python
+>>> import pyximport
+>>> pyximport.install()
+>>> import arithmetic
+```
+
+从 `__file__` 属性可以看出，这个 `.pyx` 文件已经被编译链接为共享库了，pyximport 的确方便。
+
+接下来学习如何通过 Cython 把原有代码的性能进行提升，比如在 GIS 中，经常需要计算地球表面上两点之间的距离：
+
+```python
+import math
+def great_circle(lon1, lat1, lon2, lat2):
+    radius = 3956	# miles
+    x = math.pi / 180.0
+    a = (90.0 - lat1) * (x)
+    b = (90.0 - lat2) * (x)
+    theta = (lon2 - lon1) * (x)
+    c = math.acos(math.cos(a) * math.cos(b)) + (math.sin(a) * math.sin(b) * math.cos(theta))
+    return radius * c
+```
+
+先使用 Cython 的类型声明进行修改：
+
+```python
+import math
+def great_circle(float lon1, float lat1, float lon2, float lat2):
+    cdef float radius = 3956.0
+    cdef float pi = 3.14159265
+    cdef float x = pi / 180.0
+    cdef float a, b, theta, c
+    a = (90.0 - lat1) * (x)
+    b = (90.0 - lat2) * (x)
+    theta = (lon2 - lon1) * (x)
+    c = math.acos(math.cos(a) * math.cos(b)) + (math.sin(a) * math.sin(b) * math.cos(theta))
+    return radius * c
+```
+
+通过给 `great_circle` 函数的参数、中间变量增加类型声明，Cython 代码业务逻辑代码一行没改。使用 timeit 库可以测定提速将近 2 成。还有一个性能瓶颈，就是调用的 `math` 库是一个 Python 库，性能较差，于是这里可以直接调用 C 函数来解决：
+
+```python
+cdef extern from "math.h":
+    float cosf(float theta)
+    float sinf(float theta)
+    float acosf(float theta)
+    
+def greate_circle(float lon1, float lat1, float lon2, float lat2):
+    cdef float radius = 3956.0
+    cdef float pi = 3.14159265
+    cdef float x = pi / 180.0
+    cdef float a, b, theta, c
+    a = (90.0 - lat1) * (x)
+    b = (90.0 - lat2) * (x)
+    theta = (lon2 - lon1) * (x)
+    c = acosf((cosf(a) * cosf(b)) + (sinf(a) * sinf(b) * cosf(theta)))
+    return radius * c
+```
+
+Cython 使用 `cdef extern from` 语法，将 `math.h` 这个 C 语言库头文件里声明的 `cofs`、`sinf`、`acosf` 等函数导入代码中。因为减少了 Python 函数调用和调用时产生的类型转换开销，使用 `timeit` 测试这个版本的代码性能提升了 5 倍至少。
+
+比起直接使用 C/C++ 编写扩展模块，使用 Cython 的方法方便得多。
+
+> #### 注意
+>
+> 除了使用 Cython 编写扩展模块提升性能之外，Cython 也可以用来把之前编写的 C/C++ 代码封装成 .so 模块给 Python 调用（类似 boost.python/SWIG 的功能），Cython 社区已经开发了许多自动化工具。
+
