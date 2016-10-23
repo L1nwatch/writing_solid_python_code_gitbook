@@ -340,7 +340,7 @@ def my_enumerate(sequence):
 
 可以通过 `id()` 函数来看看变量在内存中具体的存储空间。
 
-is 表示的是对象标示符（object identity），而 == 表示的意思是相等（equal）。is 的作用是用来检查对象的标示符是否一致的，也就是比较两个对象在内存中是否拥有同一块内存荣建，它并不适合用来判断两个字符串是否相等。`x is y` 仅当 x 和 y 是同一个对象的时候才返回 True，`x is b` 基本相当于 `id(x) == id(y)` 。而 == 才是用来检验两个对象的值是否相等的，它实际调用内部 `__eq__()` 方法，因此 `a == b` 相当于 `a.__eq__(b)`，所以 == 操作符也是可以被重载的，而 is 不能被重载。一般情况下，如果 `x is y` 为 True 的话 `x == y` 的值也为 True（特殊情况除外，如 NaN，`a = floag('NaN')`，`a is a` 为 True，`a == a` 为 false）。
+is 表示的是对象标示符（object identity），而 == 表示的意思是相等（equal）。is 的作用是用来检查对象的标示符是否一致的，也就是比较两个对象在内存中是否拥有同一块内存空间，它并不适合用来判断两个字符串是否相等。`x is y` 仅当 x 和 y 是同一个对象的时候才返回 True，`x is b` 基本相当于 `id(x) == id(y)` 。而 == 才是用来检验两个对象的值是否相等的，它实际调用内部 `__eq__()` 方法，因此 `a == b` 相当于 `a.__eq__(b)`，所以 == 操作符也是可以被重载的，而 is 不能被重载。一般情况下，如果 `x is y` 为 True 的话 `x == y` 的值也为 True（特殊情况除外，如 NaN，`a = floag('NaN')`，`a is a` 为 True，`a == a` 为 false）。
 
 Python 中存在 `string interning` （字符串驻留）机制，对于较小的字符串，为了提高系统性能会保留其值的一个副本，当创建新的字符串的时候直接指向该副本即可。
 
@@ -353,7 +353,7 @@ Python 内建的字符串有两种类型：`str` 和 `Unicode`，它们拥有共
 str_unicode = u"unicode" # 前面加 u 表示 Unicode
 ```
 
-Unicode 编码系统可以分为编码方式和实现方式两个层次。在编码方式上，分为 `UCS-2` 和 `UCS-4` 两种方式，`UCS-2` 用两个字节编码，`UCS-4` 用 4 个字节编码。目前实际应用的统一码对应于 `UCS-2`，使用 16 位的编码空间。一个字符的 `Unicode` 编码是确定的，但是在实际传输过程中，由于系统平台的不同以及出于节省空间的目的，实现方式有所差异。Unicode 的实现方式成为 Unicode 转换格式（Unicode Transformation Format），简称为 UTF，包括 `UTF-7`、`UTF-16`、`UTF-32`、`UTF-8` 等，其中较为常见的为 `UTF-8`。`UTF-8` 的特点是对不同范围的字符使用不同长度的编码，其中 `0x00 ~ 0x7F` 的字符的 `UTF-8` 编码与 ASCII 编码完全相同。`UTF-8` 编码的最大长度是 4 个字节，从 Unicode 到 `UTF-8` 的编码方式如下所示：
+Unicode 编码系统可以分为编码方式和实现方式两个层次。在编码方式上，分为 `UCS-2` 和 `UCS-4` 两种方式，`UCS-2` 用两个字节编码，`UCS-4` 用 4 个字节编码。目前实际应用的统一码对应于 `UCS-2`，使用 16 位的编码空间。一个字符的 `Unicode` 编码是确定的，但是在实际传输过程中，由于系统平台的不同以及出于节省空间的目的，实现方式有所差异。Unicode 的实现方式称为 Unicode 转换格式（Unicode Transformation Format），简称为 UTF，包括 `UTF-7`、`UTF-16`、`UTF-32`、`UTF-8` 等，其中较为常见的为 `UTF-8`。`UTF-8` 的特点是对不同范围的字符使用不同长度的编码，其中 `0x00 ~ 0x7F` 的字符的 `UTF-8` 编码与 ASCII 编码完全相同。`UTF-8` 编码的最大长度是 4 个字节，从 Unicode 到 `UTF-8` 的编码方式如下所示：
 
 | Unicode 编码（十六进制） | UTF-8 字节流（二进制）                      |
 | ---------------- | ----------------------------------- |
@@ -388,7 +388,7 @@ Python 中处理中文字符经常会遇到的几个问题：
 | unicode-escapse       | 与 unicode 文字 u'string' 相同    |
 | raw-unicode-escape    | 与原始 Unicode 文字 ur'string' 相同 |
 
-错误处理参数有以下 3 钟常用方式：
+错误处理参数有以下 3 种常用方式：
 
 * strict：默认处理方式，编码错误抛出 UnicodeError 异常
 * ignore：忽略不可转换字符
@@ -415,15 +415,19 @@ Python 中的默认编码，可以通过 `sys.getdefaultencoding()` 来验证）
 
 * `# coding=<encoding name>`，比如 `#coding=utf-8`
 
-* ```python
-  #!/usr/bin/python
-  # -*- coding: <encoding name> -*-
-  ```
+* 第二种
 
-* ```python
-  #!/usr/bin/python
-  # vim: set fileencoding=<encoding name> :
-  ```
+```python
+#!/usr/bin/python
+# -*- coding: <encoding name> -*-
+```
+
+* 第三种
+
+```python
+#!/usr/bin/python
+# vim: set fileencoding=<encoding name> :
+```
 
 Python2.6 之后可以通过 `import unicode_literals` 自动将定义的普通字符识别为 Unicode 字符串，这样字符串的行为将和 Python3 中保持一致。
 
