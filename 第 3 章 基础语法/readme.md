@@ -2,7 +2,7 @@
 
 ### 建议 19：有节制地使用 `from ... import` 语句
 
-Python 提供了 3 钟方式来引入外部模块：`import` 语句、`from ... import ...` 及 `__import__` 函数。其中较为常见的为前面两种，而 `__import__` 函数与 `import` 语句类似，不同点在于前者显式地将模块的名称作为字符串传递并赋值给命名空间的变量。
+Python 提供了 3 种方式来引入外部模块：`import` 语句、`from ... import ...` 及 `__import__` 函数。其中较为常见的为前面两种，而 `__import__` 函数与 `import` 语句类似，不同点在于前者显式地将模块的名称作为字符串传递并赋值给命名空间的变量。
 
 在使用 `import` 的时候注意以下几点：
 
@@ -35,7 +35,7 @@ Python 在初始化运行环境的时候会预先加载一批内建模块到内�
 
 解释器默认先从当前目录下搜索对应的模块，当搜到时便停止搜索进行动态加载。
 
-在 Python2.4 以前默认为隐式地 `relative import`，局部范围的模块将覆盖同名的全局范围的模块。如果要使用标准库中同名的模块，需要深入考察 `sys.modules`。Python2.5 中后虽然默认的仍然是 `relative import`，但它为 `absolute import` 提供了一种新的机制，在模块中使用 `from __future__ import absolute_import` 语句进行说明后再进行导入。同时它还通过点号提供了一种显式进行 `relative import` 的方法，"." 表示当前目录， ".." 表示当前目录的上一层目录。
+在 Python2.4 以前默认为隐式的 `relative import`，局部范围的模块将覆盖同名的全局范围的模块。如果要使用标准库中同名的模块，需要深入考察 `sys.modules`。Python2.5 中后虽然默认的仍然是 `relative import`，但它为 `absolute import` 提供了一种新的机制，在模块中使用 `from __future__ import absolute_import` 语句进行说明后再进行导入。同时它还通过点号提供了一种显式进行 `relative import` 的方法，"." 表示当前目录， ".." 表示当前目录的上一层目录。
 
 使用显式 `relative import` 之后再运行程序可能遇到这种错误 "ValueError: Attempted relative import in non-package"。这个问题产生的原因在于 `relative import` 使用模块的 `__name__` 属性来决定当前模块在包的顶层位置，而不管模块在文件系统中的实际位置。而在 `relative import` 的情形下，`__name__` 会随着文件加载方式的不同而发生改变。`python -m` 中 `-m` 的作用是使得一个模块像脚本一样运行。而无论以何种方式加载，当在包的内部运行脚本的时候，包相关的结构信息都会丢失，默认当前脚本所在的位置为模块在包中的顶层位置，因此便会抛出异常。
 
