@@ -11,8 +11,6 @@ Python 中一切皆对象：字符是对象，列表是对象，内建类型（`
 一些结论：
 
 * 在 Python 中一切皆对象，type 也是对象
-
-
 * `object` 和古典类没有基类，`type` 的基类为 `object`
 * 新式类中 `type()` 的值和 `__class__` 的值是一样的，但古典类中实例的 `type` 为 `instance`，其 `type()` 的值和 `__class__` 的值不一样
 * 继承自内建类型的用户类的实例也是 `object` 的实例，`object` 是 `type` 的实例，`type` 实际是个元类（metaclass）
@@ -27,7 +25,7 @@ Python 中一切皆对象：字符是对象，列表是对象，内建类型（`
 
 ### 建议 55：`__init__()` 不是构造方法
 
-从表面上看它确实很想构造方法：当需要实例化一个对象的时候，使用 `a=Class(args...)` 便可以返回一个类的实例，其中 args 的参数与 `__init__()` 方法中申明的参数一样。
+从表面上看它确实很像构造方法：当需要实例化一个对象的时候，使用 `a=Class(args...)` 便可以返回一个类的实例，其中 args 的参数与 `__init__()` 方法中申明的参数一样。
 
 `__init__()` 并不是真正意义上的构造方法，`__init__()` 方法所做的工作是在类的对象创建好之后进行变量的初始化。`__new__()` 方法才会真正创建实例，是类的构造方法。这两个方法都是 object 类中默认的方法，继承自 object 的新式类，如果不覆盖这两个方法将会默认调用 object 中对应的方法。
 
@@ -212,7 +210,7 @@ self 表示的就是实例对象本身，即类的对象在内存中的地址。
 
 * 在存在同名的局部变量以及实例变量的情况下使用 self 使得实例变量更容易被区分
 
-Guido 认为，基于 Python 目前的一些特性（如类中动态添加方法，在类风格的装饰器中没有 self 无法确认是返回一个静态方法还是累方法等）保留其原有设计是个更好的选择，更何况 Python 的哲学是：显示优于隐式（Explicit is better than implicit）。
+Guido 认为，基于 Python 目前的一些特性（如类中动态添加方法，在类风格的装饰器中没有 self 无法确认是返回一个静态方法还是类方法等）保留其原有设计是个更好的选择，更何况 Python 的哲学是：显示优于隐式（Explicit is better than implicit）。
 
 ### 建议 58：理解 MRO 与多继承
 
@@ -305,7 +303,7 @@ class Property(object):
 
 需要注意的是 `__getattribute__()` 仅用于新式类。
 
-当访问一个不存在的实例属性的饿时候就会抛出 `AttributeError` 异常。这个异常时由内部方法 `__getattribute__(self, name)` 抛出的，因为 `__getattribute__()` 会被无条件调用，也就是说只要涉及实例属性的访问就会调用该方法，它要么返回实际的值，要么抛出异常。Python 的[文档](http://docs.python.org/2/reference/datamodel.html#object.getattribute)中也提到了这一点。
+当访问一个不存在的实例属性的时候就会抛出 `AttributeError` 异常。这个异常时由内部方法 `__getattribute__(self, name)` 抛出的，因为 `__getattribute__()` 会被无条件调用，也就是说只要涉及实例属性的访问就会调用该方法，它要么返回实际的值，要么抛出异常。Python 的[文档](http://docs.python.org/2/reference/datamodel.html#object.getattribute)中也提到了这一点。
 
 实际上 `__getattr__()` 方法仅如下情况才被调用：属性不在实例的 `__dict__` 中；属性不在其基类以及祖先类的 `__dict__` 中；触发 `AttributeError` 异常时（注意，不仅仅是 `__getattribute__()` 方法的 `AttributeError` 异常，property 中定义的 `get()` 方法抛出异常的时候也会调用该方法）。
 
