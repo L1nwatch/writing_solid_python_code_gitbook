@@ -14,7 +14,7 @@
 好的工具能够对性能的提升起到非常关键的作用。常见的性能优化工具有 Psyco、Pypy 和 cPython 等。
 
 * Psyco：Psyco 是一个 `just-in-time` 的编译器，它能够在不改变源代码的情况下提高一定的性能，Psyco 将操作编译成部分优化的机器码，其操作分成三个不同的级别，有“运行时”、“编译时”和“虚拟时”变量，并根据需要提高和降低变量的级别。运行时变量只是常规 Python 解释器处理的原始字节码和对象结构。一旦 Psyco 将操作编译成机器码，那么编译时变量就会在机器寄存器和可直接访问的内存位置中表示。同时 Python 能高速缓存已编译的机器码以备以后重用，这样能节省一点时间。但 Psyco 也有其缺点，其本身所占内存较大。2012 年 Psyco 项目停止维护并正式结束，由 Pypy 所接替。
-* Pypy：Python 的动态编译器，是 Psyco 的后继项目。其目的是，做到 Psyco 没有做到的动态编译。Pypy 的实现分为两部分，第一部分“用 Python 实现的 Python”，实际上它是使用一个名为 RPython 的 Python 子集实现的，Pypy 能够将 Python 代码转成 C、.NET、Java 等语言和平台的代码；第二部分 Pypy 集成了一种编译 rPython 的即时（JIT）编译器，和许多编译器、解释其不同，这种编译器不关心 Python 代码的词法分析和语法树，所以它直接利用 Python 语言的 Code Object（Python 字节码的表示）。Pypy 直接分析 Python 代码所对应的字节码，这些字节码既不是以字符形式也不是以某种二进制格式保存在文件中。
+* Pypy：Python 的动态编译器，是 Psyco 的后继项目。其目的是，做到 Psyco 没有做到的动态编译。Pypy 的实现分为两部分，第一部分“用 Python 实现的 Python”，实际上它是使用一个名为 RPython 的 Python 子集实现的，Pypy 能够将 Python 代码转成 C、.NET、Java 等语言和平台的代码；第二部分 Pypy 集成了一种编译 rPython 的即时（JIT）编译器，和许多编译器、解释器不同，这种编译器不关心 Python 代码的词法分析和语法树，所以它直接利用 Python 语言的 Code Object（Python 字节码的表示）。Pypy 直接分析 Python 代码所对应的字节码，这些字节码既不是以字符形式也不是以某种二进制格式保存在文件中。
 
 ### 建议 81：利用 cProfile 定位性能瓶颈
 
@@ -163,7 +163,7 @@ Python 常见数据结构基本操作时间复杂度：
 | list 插入、删除某个元素，迭代操作              | O(n)                   | O(n)               |
 | list 切片操作                        | O(k)                   | O(k)               |
 | set x in s                       | O(1)                   | O(n)               |
-| set 并 s \| t                     | O(len(s) + len(t))     |                    |
+| set 并 s `|` t                     | O(len(s) + len(t))     |                    |
 | set 交 s & t                      | O(min(len(s), len(t))) | O(len(s) * len(t)) |
 | set 差 s - t                      | O(len(s))              |                    |
 | dict 获取修改元素的值，删除                 | O(1)                   | O(n)               |
@@ -215,7 +215,7 @@ for i in range(len(v1)):
 
 生成器的概念是，如果一个函数体中包含有 yield 语句，则称为生成器（generator），它是一种特殊的迭代器（iterator），也可以称为可迭代对象（iterable）。
 
-实际上当需要在循环过程中依次处理一个序列中的元素的时候，就应该考虑生成器。yield 语句与 return 语句相似，当解释器执行遇到 yield 的时候，函数会自动返回 yield 语句之后的表达式的值。不过与 return 不同的是，yield 语句在返回的同时会保存所有的局部变量以及现场信息，以便在迭代器调用 `next()` 或 `send()` 方法的时候还原，而不是直接交给垃圾回收器（`return()` 方法返回后这些信息会被垃圾回收器处理）。这样就能够保证对生成器的每一次迭代都会返回一个元素，而不是一次性在内存中生成所有的元素。自 Python2.5 开始，yield 语句变为表达式，可以直接将其支付给其他变量。
+实际上当需要在循环过程中依次处理一个序列中的元素的时候，就应该考虑生成器。yield 语句与 return 语句相似，当解释器执行遇到 yield 的时候，函数会自动返回 yield 语句之后的表达式的值。不过与 return 不同的是，yield 语句在返回的同时会保存所有的局部变量以及现场信息，以便在迭代器调用 `next()` 或 `send()` 方法的时候还原，而不是直接交给垃圾回收器（`return()` 方法返回后这些信息会被垃圾回收器处理）。这样就能够保证对生成器的每一次迭代都会返回一个元素，而不是一次性在内存中生成所有的元素。自 Python2.5 开始，yield 语句变为表达式，可以直接将其值赋给其他变量。
 
 生成器的优点总体来说有如下几条：
 
@@ -579,7 +579,7 @@ wm.wait_for_complete()
 
 自行实现线程池，需要定义一个 Worker 处理工作请求，定义 WorkerManager 来进行线程池的管理和创建，它包含一个工作请求队列和执行结果队列，具体的下载工作通过 `download_file()` 方法来实现。
 
-相比自己实现的线程池模型，使用现成的线程池模块往往更简单。Python 中线程池模块的下载地址为：https://pypi.python.org/pypi/threadpool。该模块提供了以下基本类和方法：
+相比自己实现的线程池模型，使用现成的线程池模块往往更简单。Python 中线程池模块的下载地址为：https://pypi.python.org/pypi/threadpool 。该模块提供了以下基本类和方法：
 
 * `threadpool.ThreadPool`：线程池类，主要的作用是用来分派任务请求和收集运行结果。主要有以下方法：
   * `__init__(self, num_workers, q_size=0, resq_size=0, poll_timeout=5)`：建立线程池，并启动对应 `num_workers` 的线程；`q_size` 表示任务请求队列的大小，`resq_size` 表示存放运行结果队列的大小。
