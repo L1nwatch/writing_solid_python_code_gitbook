@@ -98,7 +98,7 @@ Lazy evaluation 常被译为“延迟计算”或“惰性计算”，指的是�
   abbreviations = ["cf.", "e.g.", "ex.", "etc.", "flg."]
   for i in xrange(100000):
       for w in ("Mr.", "Hat", "is", "chasing", "."):
-          if w in abbreviations: # 这句性能较差
+          if w in abbreviations and w[-1]=='.': # 这句性能较差
           # if w[-1] == '.' and w in abbreviations: # 性能好
               pass
   print time() - t
